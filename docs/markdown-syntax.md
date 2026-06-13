@@ -263,3 +263,151 @@ runtime:
 MVP does not require frontmatter, but the parser should not make it impossible
 to add later.
 
+## 14. Frontend Document Model And Rust Handoff
+
+The current MVP parser lives in the frontend so the editor can provide live
+preview while the user types. It converts Markdown source into a lightweight
+document model:
+
+```ts
+interface SourceRange {
+  startLine: number;
+  endLine: number;
+}
+
+interface CodeCell {
+  id: string;
+  language: string;
+  kind: "run" | "exercise";
+  code: string;
+  timeout?: number;
+  session?: string;
+  sourceRange?: SourceRange;
+  slideIndex: number;
+}
+
+interface CourseSlide {
+  id: string;
+  index: number;
+  title: string;
+  source: string;
+  html: string;
+  codeCells: CodeCell[];
+}
+
+interface CourseDocument {
+  title: string;
+  source: string;
+  slides: CourseSlide[];
+  codeCells: CodeCell[];
+}
+```
+
+This model is an application view of the source file, not a new file format.
+The Markdown source remains the canonical data. The model can be rebuilt at any
+time from the source.
+
+Frontend responsibilities in the MVP:
+
+- Parse source text for live preview.
+- Split slides by `---`.
+- Render Markdown and Stream Learn directives into preview HTML.
+- Identify runnable and exercise code cells for UI controls.
+- Track source line ranges when the parser can provide them.
+
+Future Rust responsibilities:
+
+- Parse the same source text into a compatible `CourseDocument` shape.
+- Re-identify executable code cells before running code.
+- Validate cell IDs, attributes, source ranges, and runtime options.
+- Provide authoritative parsing for file open, save checks, execution, export,
+  indexing, and security-sensitive operations.
+- Avoid trusting frontend-only metadata when executing code.
+
+Recommended Tauri handoff:
+
+```text
+Frontend editor source
+  -> frontend parseCourse(source) for live preview
+  -> Tauri command parse_course(source) for authoritative Rust model
+  -> Tauri command run_code_cell(source, cell_id) for execution
+```
+
+The backend should receive the full Markdown source and a stable cell ID when
+running code. It should parse the source again, locate the matching `CodeCell`,
+then execute that cell. This prevents the frontend from accidentally or
+maliciously sending code that does not match the visible document.
+
+Schema compatibility rules:
+
+- Keep field names JSON-friendly and shared between TypeScript and Rust.
+- Rust structs should derive `Serialize` and `Deserialize` and mirror the
+  frontend model.
+- Add a `schemaVersion` field before the model becomes part of saved sidecar
+  state or export artifacts.
+- Treat `html` as a frontend preview cache in the MVP. The long-term Rust model
+  may return semantic blocks instead of HTML, especially for export targets.
+- Keep `sourceRange` line-based and 1-based for UI display. Parser internals may
+  use 0-based positions, but the serialized model should stay user-facing.
+
+Expected Rust mirror:
+
+```rust
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CourseDocument {
+    pub title: String,
+    pub source: String,
+    pub slides: Vec<CourseSlide>,
+    pub code_cells: Vec<CodeCell>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CourseSlide {
+    pub id: String,
+    pub index: usize,
+    pub title: String,
+    pub source: String,
+    pub html: Option<String>,
+    pub code_cells: Vec<CodeCell>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeCell {
+    pub id: String,
+    pub language: String,
+    pub kind: CodeCellKind,
+    pub code: String,
+    pub timeout: Option<u64>,
+    pub session: Option<String>,
+    pub source_range: Option<SourceRange>,
+    pub slide_index: usize,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceRange {
+    pub start_line: usize,
+    pub end_line: usize,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CodeCellKind {
+    Run,
+    Exercise,
+}
+```
+
+Implementation notes for parity:
+
+- Use the same slide separator rule in both parsers.
+- Keep directive names and code fence attributes identical across frontend and
+  backend.
+- Add parser fixture tests that run the same `.sl.md` examples through both
+  parsers and compare slide count, titles, code cell IDs, kinds, languages, and
+  runtime attributes.
+- Do not require perfect HTML parity between frontend and backend. Semantic
+  parity matters more than identical rendered markup.

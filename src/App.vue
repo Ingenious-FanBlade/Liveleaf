@@ -1,161 +1,260 @@
 <script setup lang="ts">
-const lessonSteps = [
-  {
-    number: "1",
-    title: "Select Skill",
-    body: "Choose the review mode and lock the lesson objective.",
-    color: "var(--yellow)",
-  },
-  {
-    number: "2",
-    title: "Agent Draft",
-    body: "Generate a compact script, outline, and checkpoints.",
-    color: "var(--blue)",
-  },
-  {
-    number: "3",
-    title: "Publish Card",
-    body: "Turn the final output into a class-ready activity.",
-    color: "var(--green)",
-  },
-];
+import { computed, nextTick, ref, watch } from "vue";
+import type { ComponentPublicInstance } from "vue";
+import { parseCourse } from "./markdown/parseCourse";
 
-const auditCards = [
-  { label: "Audit", color: "var(--blue)", path: "search" },
-  { label: "Quality", color: "var(--yellow)", path: "target" },
-  { label: "Workflow", color: "var(--green)", path: "flow" },
-  { label: "Standard", color: "var(--red)", path: "check" },
-];
+const starterSource = `# Python Basics
+
+::: note
+Stream Learn files stay readable Markdown first, then add teaching blocks where plain Markdown runs out of room.
+:::
+
+\`\`\`python run id="hello-stream" timeout=5000
+name = "Stream Learn"
+print(f"Hello, {name}")
+\`\`\`
+
+---
+
+# Variables
+
+::: columns
+::: column width=45%
+## Concept
+
+A variable stores a value so the program can use it later.
+:::
+
+::: column width=55%
+\`\`\`python exercise id="change-name"
+name = "Ada"
+print(name)
+\`\`\`
+:::
+:::
+
+---
+
+# Media And Reveals
+
+::video[Sorting demo](./assets/sort.mp4){controls start=12 width=80%}
+
+::: hint
+Think about what state needs to be remembered between two lines of code.
+:::
+
+::: solution collapsed
+Use a dictionary to store previously seen values.
+:::
+`;
+
+const source = ref(starterSource);
+const isNavigatorOpen = ref(true);
+const activeSlideId = ref("slide-1");
+const previewStageRef = ref<HTMLElement | null>(null);
+const slideRefs = new Map<string, HTMLElement>();
+
+const course = computed(() => parseCourse(source.value));
+
+type TemplateRef = Element | ComponentPublicInstance | null;
+
+watch(
+  () => course.value.slides.map((slide) => slide.id).join(","),
+  () => {
+    if (!course.value.slides.some((slide) => slide.id === activeSlideId.value)) {
+      activeSlideId.value = course.value.slides[0]?.id ?? "slide-1";
+    }
+  },
+);
+
+function setSlideRef(slideId: string, element: TemplateRef) {
+  if (element instanceof HTMLElement) {
+    slideRefs.set(slideId, element);
+    return;
+  }
+
+  if (element === null) {
+    slideRefs.delete(slideId);
+  }
+}
+
+function selectSlide(slideId: string) {
+  activeSlideId.value = slideId;
+
+  nextTick(() => {
+    const target = slideRefs.get(slideId);
+    if (!target) {
+      return;
+    }
+
+    const behavior: ScrollBehavior = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches
+      ? "auto"
+      : "smooth";
+
+    target.scrollIntoView({ behavior, block: "start", inline: "nearest" });
+  });
+}
+
+function toggleNavigator() {
+  isNavigatorOpen.value = !isNavigatorOpen.value;
+}
+
+function updateActiveSlideFromScroll() {
+  const stage = previewStageRef.value;
+  if (!stage) {
+    return;
+  }
+
+  const stageRect = stage.getBoundingClientRect();
+  const readingLine = stageRect.top + stage.clientHeight * 0.38;
+  let closestSlideId = activeSlideId.value;
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  for (const slide of course.value.slides) {
+    const slideElement = slideRefs.get(slide.id);
+    if (!slideElement) {
+      continue;
+    }
+
+    const slideRect = slideElement.getBoundingClientRect();
+    const distance = Math.abs(slideRect.top - readingLine);
+
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestSlideId = slide.id;
+    }
+  }
+
+  activeSlideId.value = closestSlideId;
+}
 </script>
 
 <template>
-  <main class="paper-shell" aria-labelledby="page-title">
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">Stream Learn / Demo Board</p>
-        <h1 id="page-title">
-          Lesson Agent
-          <span>Review Kit</span>
-        </h1>
-        <p class="intro">
-          A warm notebook-style workspace for reviewing lesson agents, output
-          quality, workflow proof, and publishing standards.
-        </p>
-
-        <div class="hero-actions" aria-label="Demo actions">
-          <button class="paper-button primary" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 12h14" />
-              <path d="m13 6 6 6-6 6" />
-            </svg>
-            Start Review
-          </button>
-          <button class="paper-button secondary" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 6h13" />
-              <path d="M8 12h13" />
-              <path d="M8 18h13" />
-              <path d="M3 6h.01" />
-              <path d="M3 12h.01" />
-              <path d="M3 18h.01" />
-            </svg>
-            View Queue
-          </button>
-        </div>
-      </div>
-
-      <div class="demo-card" aria-label="Agent output preview">
-        <span class="step-badge">1</span>
-        <div class="card-heading">
+  <main
+    class="course-shell paper-bg"
+    :class="{ 'navigator-collapsed': !isNavigatorOpen }"
+    aria-label="Stream Learn markdown workspace"
+  >
+    <header class="top-rule">
+      <div class="navigator-head">
+        <button
+          class="fold-button"
+          type="button"
+          :aria-label="isNavigatorOpen ? '收起页面浏览栏' : '展开页面浏览栏'"
+          :title="isNavigatorOpen ? '收起页面浏览栏' : '展开页面浏览栏'"
+          @click="toggleNavigator"
+        >
           <svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="6" y="8" width="12" height="10" rx="2" />
-            <path d="M9 8V5h6v3" />
-            <path d="M9 13h.01" />
-            <path d="M15 13h.01" />
-            <path d="M4 13H2" />
-            <path d="M22 13h-2" />
+            <path v-if="isNavigatorOpen" d="m15 6-6 6 6 6" />
+            <path v-else d="m9 6 6 6-6 6" />
           </svg>
-          <span>Agent Output</span>
-        </div>
+        </button>
 
-        <div class="output-capsule">
-          <svg class="code-mark" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="m9 18-6-6 6-6" />
-            <path d="m15 6 6 6-6 6" />
-          </svg>
-          <div class="code-lines" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-        </div>
-
-        <div class="status-strip">
-          <span>Two-pass audit</span>
-          <strong>Ready</strong>
+        <div v-if="isNavigatorOpen" class="navigator-title">
+          <span>Slides</span>
+          <strong>{{ course.slides.length }}</strong>
         </div>
       </div>
-    </section>
 
-    <section class="superpowers" aria-labelledby="superpowers-title">
-      <div class="shield-mark" aria-hidden="true">
-        <svg viewBox="0 0 64 64">
-          <path d="M32 8 50 16v14c0 14-8.5 23-18 27-9.5-4-18-13-18-27V16Z" />
-        </svg>
-        <span></span>
+      <div class="lesson-title">
+        <span>Stream Learn</span>
+        <strong>{{ course.title }}</strong>
       </div>
-      <h2 id="superpowers-title" class="paper-title">SUPERPOWERS</h2>
 
-      <div class="tile-row" aria-label="Review categories">
-        <article
-          v-for="card in auditCards"
-          :key="card.label"
-          class="paper-tile"
-          :style="{ '--accent': card.color }"
+      <div class="lesson-stats" aria-label="Document stats">
+        <span>{{ course.codeCells.length }} code</span>
+        <span>{{ source.length }} chars</span>
+      </div>
+    </header>
+
+    <div class="workspace-layout">
+      <aside class="slide-navigator" aria-label="页面浏览栏">
+        <div v-if="isNavigatorOpen" class="thumbnail-stack">
+          <button
+            v-for="slide in course.slides"
+            :key="slide.id"
+            class="slide-thumbnail"
+            :class="{ active: slide.id === activeSlideId }"
+            type="button"
+            :aria-current="slide.id === activeSlideId ? 'page' : undefined"
+            @click="selectSlide(slide.id)"
+          >
+            <span class="thumbnail-number">{{ slide.index + 1 }}</span>
+            <span class="thumbnail-label">{{ slide.title }}</span>
+            <span v-if="slide.codeCells.length" class="thumbnail-meta">
+              {{ slide.codeCells.length }} code
+            </span>
+          </button>
+        </div>
+
+        <div v-else class="collapsed-slides" aria-label="页面快速选择">
+          <button
+            v-for="slide in course.slides"
+            :key="slide.id"
+            class="slide-dot"
+            :class="{ active: slide.id === activeSlideId }"
+            type="button"
+            :aria-current="slide.id === activeSlideId ? 'page' : undefined"
+            :aria-label="`打开 ${slide.title}`"
+            @click="selectSlide(slide.id)"
+          >
+            {{ slide.index + 1 }}
+          </button>
+        </div>
+      </aside>
+
+      <section class="editor-pane" aria-labelledby="editor-title">
+        <div class="pane-title">
+          <span id="editor-title">Markdown Source</span>
+          <strong>.sl.md</strong>
+        </div>
+
+        <textarea
+          v-model="source"
+          class="source-editor"
+          spellcheck="false"
+          aria-label="Markdown source editor"
+        />
+      </section>
+
+      <section class="preview-pane" aria-labelledby="preview-title">
+        <div class="pane-title">
+          <span id="preview-title">Live Preview</span>
+          <strong>{{ course.slides.length }} slides</strong>
+        </div>
+
+        <div
+          ref="previewStageRef"
+          class="preview-stage"
+          aria-label="实时预览"
+          @scroll.passive="updateActiveSlideFromScroll"
         >
-          <svg v-if="card.path === 'search'" viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-4-4" />
-          </svg>
-          <svg v-else-if="card.path === 'target'" viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="8" />
-            <circle cx="12" cy="12" r="4" />
-            <circle cx="12" cy="12" r="1" />
-          </svg>
-          <svg v-else-if="card.path === 'flow'" viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="6" cy="7" r="3" />
-            <circle cx="18" cy="17" r="3" />
-            <path d="M8.5 9.5c3 4 4 5 6.5 6" />
-            <path d="M6 10v7h9" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="9" />
-            <path d="m8 12 3 3 6-7" />
-          </svg>
-          <span>{{ card.label }}</span>
-        </article>
-      </div>
-    </section>
+          <article
+            v-for="slide in course.slides"
+            :key="slide.id"
+            :ref="(element) => setSlideRef(slide.id, element)"
+            class="preview-slide"
+            :class="{ active: slide.id === activeSlideId }"
+            :aria-labelledby="`preview-slide-title-${slide.id}`"
+          >
+            <div class="slide-meta">
+              <span>Slide {{ slide.index + 1 }}</span>
+              <strong v-if="slide.codeCells.length">
+                {{ slide.codeCells.length }} code
+              </strong>
+            </div>
 
-    <section class="lesson-flow" aria-labelledby="flow-title">
-      <div class="section-heading">
-        <p class="eyebrow">Review Path</p>
-        <h2 id="flow-title">From rough prompt to class-ready lesson</h2>
-      </div>
-
-      <div class="flow-grid">
-        <article
-          v-for="step in lessonSteps"
-          :key="step.number"
-          class="flow-card"
-          :style="{ '--badge-color': step.color }"
-        >
-          <span class="mini-badge">{{ step.number }}</span>
-          <h3>{{ step.title }}</h3>
-          <p>{{ step.body }}</p>
-        </article>
-      </div>
-    </section>
+            <div
+              :id="`preview-slide-title-${slide.id}`"
+              class="markdown-preview"
+              v-html="slide.html"
+            />
+          </article>
+        </div>
+      </section>
+    </div>
   </main>
 </template>
 
@@ -175,7 +274,7 @@ const auditCards = [
   --line-soft: rgba(51, 68, 84, 0.08);
   color: var(--ink-dark);
   background: var(--paper);
-  font-family: Nunito, Avenir, "Segoe UI", sans-serif;
+  font-family: Nunito, Inter, "Segoe UI", system-ui, sans-serif;
   font-size: 16px;
   font-synthesis: none;
   line-height: 1.5;
@@ -192,19 +291,25 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  background-color: var(--paper);
+  background: var(--paper);
 }
 
-button {
+button,
+textarea {
   font: inherit;
 }
 </style>
 
 <style scoped>
-.paper-shell {
+.course-shell {
+  height: 100vh;
   min-height: 100vh;
-  padding: 36px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
+}
+
+.paper-bg {
   background-color: var(--paper);
   background-image:
     linear-gradient(rgba(51, 68, 84, 0.045) 1px, transparent 1px),
@@ -212,512 +317,688 @@ button {
   background-size: 24px 24px;
 }
 
-.hero {
-  width: min(1180px, 100%);
-  min-height: calc(100vh - 72px);
-  margin: 0 auto;
+.top-rule {
+  min-height: 86px;
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
+  grid-template-columns: 190px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 54px;
+  column-gap: 22px;
+  padding: 14px 24px 14px 14px;
+  border-bottom: 5px solid var(--ink);
+  background: rgba(251, 247, 234, 0.78);
 }
 
-.hero-copy {
-  position: relative;
-  z-index: 1;
-}
-
-.eyebrow {
-  margin: 0 0 12px;
-  color: var(--green);
-  font-size: 0.82rem;
-  font-weight: 900;
-  letter-spacing: 0;
-}
-
-h1,
-h2,
-h3,
-p {
-  overflow-wrap: anywhere;
-}
-
-h1 {
-  max-width: 650px;
-  margin: 0;
-  color: var(--ink-dark);
-  font-family: Fraunces, "Libre Baskerville", Georgia, serif;
-  font-size: clamp(3.2rem, 8vw, 7.6rem);
-  line-height: 0.88;
-  letter-spacing: 0;
-}
-
-h1 span {
-  display: block;
-  color: var(--red);
-  text-shadow: 5px 5px 0 var(--ink);
-}
-
-.intro {
-  max-width: 580px;
-  margin: 28px 0 0;
-  color: var(--ink);
-  font-size: clamp(1rem, 1.4vw, 1.2rem);
-  font-weight: 700;
-}
-
-.hero-actions {
+.navigator-head,
+.lesson-title,
+.lesson-stats,
+.pane-title,
+.slide-meta {
   display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 34px;
+  align-items: center;
 }
 
-.paper-button {
-  min-height: 54px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+.navigator-head {
+  gap: 12px;
+}
+
+.fold-button {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
   border: 4px solid var(--ink);
-  border-radius: 16px;
+  border-radius: 10px;
+  background: var(--surface);
   color: var(--ink-dark);
+  box-shadow: 6px 6px 0 var(--shadow);
   cursor: pointer;
-  font-weight: 900;
   transition:
     transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
     box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.paper-button svg {
-  width: 22px;
-  height: 22px;
+.fold-button svg {
+  width: 26px;
+  height: 26px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 3;
+  stroke-width: 3.4;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.paper-button.primary {
-  padding: 0 22px;
-  background: var(--yellow);
-  box-shadow: 7px 7px 0 var(--ink);
-}
-
-.paper-button.secondary {
-  padding: 0 20px;
-  background: var(--surface);
-  box-shadow: 7px 7px 0 rgba(51, 68, 84, 0.22);
-}
-
-.paper-button:hover {
+.fold-button:hover,
+.slide-thumbnail:hover,
+.slide-thumbnail.active {
   transform: translate(-2px, -2px);
-  box-shadow: 9px 9px 0 var(--ink);
 }
 
-.paper-button:active {
+.fold-button:hover {
+  box-shadow: 8px 8px 0 var(--shadow);
+}
+
+.fold-button:active {
   transform: translate(2px, 2px);
-  box-shadow: 4px 4px 0 var(--ink);
+  box-shadow: 3px 3px 0 var(--shadow);
 }
 
-.paper-button:focus-visible,
-.paper-tile:focus-visible {
+.fold-button:focus-visible,
+.slide-thumbnail:focus-visible,
+.slide-dot:focus-visible,
+.source-editor:focus-visible {
   outline: 4px solid var(--blue);
   outline-offset: 4px;
 }
 
-.demo-card {
-  position: relative;
-  min-height: 456px;
-  padding: 74px clamp(26px, 4vw, 56px) 44px;
-  border: 4px solid var(--ink);
-  border-radius: 20px;
-  background: rgba(255, 253, 245, 0.94);
-  box-shadow: 18px 18px 0 rgba(47, 65, 82, 0.16);
-}
-
-.step-badge {
-  position: absolute;
-  top: -24px;
-  left: -24px;
-  width: 52px;
-  height: 52px;
-  display: grid;
-  place-items: center;
-  border: 4px solid var(--ink);
-  border-radius: 50%;
-  background: var(--yellow);
-  color: var(--ink-dark);
-  font-family: Georgia, serif;
-  font-size: 1.35rem;
+.navigator-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
   font-weight: 900;
 }
 
-.card-heading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  color: var(--ink-dark);
-  font-family: Georgia, serif;
-  font-size: clamp(1.8rem, 3.4vw, 3rem);
-  font-weight: 700;
-}
-
-.card-heading svg {
-  width: 54px;
-  height: 54px;
-  fill: none;
-  stroke: var(--blue);
-  stroke-width: 3.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.output-capsule {
-  width: min(760px, 100%);
-  min-height: 138px;
-  margin: 64px auto 0;
-  padding: 30px 34px;
+.navigator-title strong {
+  min-width: 32px;
+  height: 32px;
   display: grid;
-  grid-template-columns: 72px 1fr;
-  align-items: center;
-  gap: 24px;
-  border-radius: 18px;
-  background: #344b60;
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.04);
-}
-
-.code-mark {
-  width: 62px;
-  height: 62px;
-  fill: none;
-  stroke: var(--blue);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.code-lines {
-  display: grid;
-  gap: 16px;
-}
-
-.code-lines span {
-  display: block;
-  height: 14px;
-  border-radius: 999px;
-  background: rgba(159, 190, 211, 0.46);
-}
-
-.code-lines span:nth-child(1) {
-  width: 70%;
-}
-
-.code-lines span:nth-child(2) {
-  width: 92%;
-}
-
-.code-lines span:nth-child(3) {
-  width: 54%;
-}
-
-.status-strip {
-  width: min(760px, 100%);
-  margin: 30px auto 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  color: var(--muted);
-  font-weight: 800;
-}
-
-.status-strip strong {
-  display: inline-flex;
-  min-width: 78px;
-  justify-content: center;
-  padding: 6px 12px;
+  place-items: center;
   border: 3px solid var(--ink);
   border-radius: 999px;
+  background: var(--yellow);
+  color: var(--ink-dark);
+}
+
+.lesson-title {
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.lesson-title span {
+  color: var(--green);
+}
+
+.lesson-title strong {
+  min-width: 0;
+  color: var(--ink-dark);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.25rem, 2.1vw, 1.85rem);
+  overflow-wrap: anywhere;
+}
+
+.lesson-stats {
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.lesson-stats span,
+.pane-title strong,
+.slide-meta strong,
+.thumbnail-meta {
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: var(--yellow);
+  color: var(--ink-dark);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.lesson-stats span {
+  padding: 5px 10px;
+}
+
+.workspace-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 190px minmax(300px, 0.92fr) minmax(360px, 1.12fr);
+  gap: 22px;
+  padding: 22px 24px 30px 14px;
+  overflow: hidden;
+}
+
+.slide-navigator,
+.editor-pane,
+.preview-pane {
+  min-width: 0;
+  min-height: 0;
+}
+
+.slide-navigator {
+  overflow-y: auto;
+  padding: 0 12px 28px 0;
+}
+
+.thumbnail-stack {
+  display: grid;
+  gap: 16px;
+  justify-items: end;
+}
+
+.slide-thumbnail {
+  position: relative;
+  width: min(152px, 100%);
+  min-height: 116px;
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  padding: 18px 14px;
+  border: 4px solid var(--ink);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-dark);
+  box-shadow: 8px 8px 0 rgba(47, 65, 82, 0.16);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.slide-thumbnail::before {
+  position: absolute;
+  top: 11px;
+  left: 12px;
+  width: 28px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--blue);
+  content: "";
+}
+
+.slide-thumbnail:nth-child(3n + 2)::before {
+  background: var(--green);
+}
+
+.slide-thumbnail:nth-child(3n)::before {
+  background: var(--red);
+}
+
+.slide-thumbnail:hover,
+.slide-thumbnail.active {
+  box-shadow: 10px 10px 0 var(--shadow);
+}
+
+.slide-thumbnail.active {
+  background: var(--paper-soft);
+}
+
+.thumbnail-number {
+  position: absolute;
+  right: 12px;
+  bottom: 7px;
+  color: rgba(51, 68, 84, 0.24);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 2rem;
+  font-weight: 900;
+}
+
+.thumbnail-label {
+  position: relative;
+  z-index: 1;
+  color: var(--ink-dark);
+  font-weight: 900;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.thumbnail-meta {
+  width: max-content;
+  padding: 3px 8px;
+  background: var(--paper);
+}
+
+.collapsed-slides {
+  width: 54px;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+
+.slide-dot {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-dark);
+  box-shadow: 4px 4px 0 rgba(47, 65, 82, 0.22);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.slide-dot.active {
+  background: var(--yellow);
+  box-shadow: 5px 5px 0 var(--shadow);
+}
+
+.editor-pane,
+.preview-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+
+.pane-title {
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  color: var(--green);
+  font-weight: 900;
+}
+
+.pane-title strong,
+.slide-meta strong {
+  padding: 4px 9px;
+}
+
+.source-editor {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  resize: none;
+  padding: 20px;
+  border: 4px solid var(--ink);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 12px 12px 0 rgba(47, 65, 82, 0.16);
+  color: var(--ink-dark);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.94rem;
+  line-height: 1.62;
+  outline: none;
+  tab-size: 2;
+}
+
+.preview-stage {
+  min-height: 0;
+  overflow-y: auto;
+  scroll-padding-top: 4px;
+  padding: 0 16px 30px 0;
+}
+
+.preview-slide {
+  margin: 0 0 24px;
+  padding: clamp(22px, 4vw, 42px);
+  border: 4px solid var(--ink);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 14px 14px 0 rgba(47, 65, 82, 0.18);
+}
+
+.preview-slide.active {
+  box-shadow: 16px 16px 0 rgba(47, 65, 82, 0.26);
+}
+
+.slide-meta {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: clamp(24px, 4vw, 40px);
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.slide-meta span {
+  color: var(--green);
+}
+
+.markdown-preview {
+  color: var(--ink);
+  font-weight: 750;
+}
+
+.markdown-preview :deep(*) {
+  overflow-wrap: anywhere;
+}
+
+.markdown-preview :deep(h1),
+.markdown-preview :deep(h2),
+.markdown-preview :deep(h3) {
+  margin: 0 0 14px;
+  color: var(--ink-dark);
+  font-family: Fraunces, "Libre Baskerville", Georgia, serif;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.markdown-preview :deep(h1) {
+  color: var(--red);
+  font-size: clamp(2.35rem, 5vw, 4.6rem);
+  text-shadow: 3px 3px 0 var(--ink);
+}
+
+.markdown-preview :deep(h2) {
+  margin-top: 24px;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+}
+
+.markdown-preview :deep(p),
+.markdown-preview :deep(ul),
+.markdown-preview :deep(ol),
+.markdown-preview :deep(blockquote) {
+  margin: 0 0 16px;
+}
+
+.markdown-preview :deep(a) {
+  color: #206b91;
+  font-weight: 900;
+}
+
+.markdown-preview :deep(table) {
+  width: 100%;
+  margin: 18px 0;
+  border-collapse: collapse;
+  background: var(--paper-soft);
+}
+
+.markdown-preview :deep(th),
+.markdown-preview :deep(td) {
+  padding: 9px 11px;
+  border: 3px solid var(--ink);
+  text-align: left;
+}
+
+.markdown-preview :deep(th) {
+  background: var(--yellow);
+  color: var(--ink-dark);
+}
+
+.markdown-preview :deep(blockquote) {
+  padding: 12px 16px;
+  border-left: 6px solid var(--green);
+  background: var(--paper-soft);
+}
+
+.markdown-preview :deep(:not(.sl-code-cell) > pre) {
+  margin: 18px 0;
+  padding: 18px;
+  overflow: auto;
+  border: 4px solid var(--ink);
+  border-radius: 12px;
+  background: #334a5e;
+  color: var(--surface);
+  box-shadow: 8px 8px 0 var(--shadow);
+}
+
+.markdown-preview :deep(code) {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.markdown-preview :deep(:not(pre) > code) {
+  padding: 2px 6px;
+  border: 2px solid rgba(51, 68, 84, 0.35);
+  border-radius: 6px;
+  background: var(--paper-soft);
+  color: var(--ink-dark);
+  font-size: 0.9em;
+}
+
+.markdown-preview :deep(.sl-columns) {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0;
+  margin: 18px 0;
+  overflow: hidden;
+}
+
+.markdown-preview :deep(.sl-column) {
+  flex: 1 1 var(--column-width, 0);
+  min-width: 0;
+  padding: 0 16px;
+}
+
+.markdown-preview :deep(.sl-column:first-child) {
+  padding-left: 0;
+}
+
+.markdown-preview :deep(.sl-column + .sl-column) {
+  border-left: 3px solid var(--ink);
+}
+
+.markdown-preview :deep(.sl-column:last-child) {
+  padding-right: 0;
+}
+
+.markdown-preview :deep(.sl-column > :first-child) {
+  margin-top: 0;
+}
+
+.markdown-preview :deep(.sl-column > :last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-preview :deep(.sl-callout),
+.markdown-preview :deep(.sl-reveal) {
+  margin: 18px 0;
+  padding: 16px 18px;
+  border: 4px solid var(--ink);
+  border-radius: 12px;
+  background: var(--paper-soft);
+  box-shadow: 8px 8px 0 rgba(47, 65, 82, 0.14);
+}
+
+.markdown-preview :deep(.sl-callout--tip),
+.markdown-preview :deep(.sl-reveal--hint) {
+  border-color: var(--green);
+}
+
+.markdown-preview :deep(.sl-callout--warning),
+.markdown-preview :deep(.sl-callout--danger),
+.markdown-preview :deep(.sl-reveal--solution) {
+  border-color: var(--red);
+}
+
+.markdown-preview :deep(.sl-callout__label),
+.markdown-preview :deep(.sl-reveal summary) {
+  width: max-content;
+  margin-bottom: 10px;
+  padding: 4px 10px;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: var(--yellow);
+  color: var(--ink-dark);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.markdown-preview :deep(.sl-reveal summary) {
+  margin-bottom: 0;
+}
+
+.markdown-preview :deep(.sl-reveal[open] summary) {
+  margin-bottom: 10px;
+}
+
+.markdown-preview :deep(.sl-code-cell) {
+  margin: 20px 0;
+  overflow: hidden;
+  border: 4px solid var(--ink);
+  border-radius: 14px;
+  background: #334a5e;
+  color: var(--surface);
+  box-shadow: 9px 9px 0 var(--shadow);
+}
+
+.markdown-preview :deep(.sl-code-cell__header) {
+  min-height: 44px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px 8px 16px;
+  border-bottom: 3px solid var(--ink);
+  background: var(--blue);
+  color: var(--ink-dark);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.markdown-preview :deep(.sl-code-cell__header div) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.markdown-preview :deep(.sl-code-cell__header span) {
+  padding: 2px 7px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper-soft);
+  color: var(--ink-dark);
+}
+
+.markdown-preview :deep(.sl-code-cell pre) {
+  margin: 0;
+  padding: 20px;
+  overflow: auto;
+  background: transparent;
+  color: var(--surface);
+  line-height: 1.68;
+}
+
+.markdown-preview :deep(.sl-code-cell--exercise .sl-code-cell__header) {
   background: var(--green);
   color: var(--surface);
 }
 
-.superpowers {
-  width: min(880px, 100%);
-  margin: -48px auto 96px;
-  text-align: center;
+.markdown-preview :deep(.sl-media) {
+  width: min(var(--media-width, 100%), 100%);
+  margin: 20px 0;
 }
 
-.shield-mark {
-  position: relative;
-  width: 170px;
-  height: 170px;
-  margin: 0 auto 22px;
-  display: grid;
-  place-items: center;
-  border: 5px solid var(--ink);
-  border-radius: 40px;
-  background: var(--red);
-  box-shadow: 16px 16px 0 var(--ink);
-}
-
-.shield-mark svg {
-  width: 88px;
-  height: 88px;
-  fill: none;
-  stroke: var(--surface);
-  stroke-width: 5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.shield-mark span {
-  position: absolute;
-  top: -23px;
-  right: -18px;
-  width: 48px;
-  height: 52px;
-  background: var(--yellow);
-  clip-path: polygon(46% 0, 100% 0, 67% 38%, 100% 38%, 28% 100%, 45% 53%, 0 53%);
-  filter: drop-shadow(3px 3px 0 var(--ink));
-}
-
-.paper-title {
-  margin: 0 0 54px;
-  color: var(--red);
-  font-family: Fraunces, "Libre Baskerville", Georgia, serif;
-  font-size: clamp(2.5rem, 6vw, 5.6rem);
-  line-height: 0.95;
-  letter-spacing: 0;
-  text-shadow: 4px 4px 0 var(--ink);
-}
-
-.tile-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(112px, 1fr));
-  gap: 26px;
-}
-
-.paper-tile {
-  min-height: 142px;
-  padding: 20px 12px 16px;
-  display: grid;
-  place-items: center;
-  gap: 12px;
+.markdown-preview :deep(.sl-media video),
+.markdown-preview :deep(.sl-media audio) {
+  width: 100%;
   border: 4px solid var(--ink);
-  border-radius: 20px;
-  background: var(--surface);
-  color: var(--ink-dark);
-  box-shadow: 9px 9px 0 var(--ink);
-  transition:
-    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  border-radius: 12px;
+  background: var(--paper-soft);
+  box-shadow: 8px 8px 0 rgba(47, 65, 82, 0.16);
 }
 
-.paper-tile:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 11px 11px 0 var(--ink);
-}
-
-.paper-tile svg {
-  width: 54px;
-  height: 54px;
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 3.3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.paper-tile span {
-  min-height: 24px;
-  color: var(--ink-dark);
-  font-family: Georgia, serif;
-  font-size: 1.05rem;
-  font-weight: 700;
-}
-
-.lesson-flow {
-  width: min(1100px, 100%);
-  margin: 0 auto 42px;
-}
-
-.section-heading {
-  max-width: 680px;
-  margin-bottom: 28px;
-}
-
-.section-heading h2 {
-  margin: 0;
-  color: var(--ink-dark);
-  font-family: Fraunces, Georgia, serif;
-  font-size: clamp(2rem, 4vw, 4rem);
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.flow-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 22px;
-}
-
-.flow-card {
-  position: relative;
-  min-height: 220px;
-  padding: 52px 24px 26px;
-  border: 4px solid var(--ink);
-  border-radius: 18px;
-  background: var(--surface);
-  box-shadow: 12px 12px 0 rgba(47, 65, 82, 0.18);
-}
-
-.mini-badge {
-  position: absolute;
-  top: -20px;
-  left: 22px;
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 4px solid var(--ink);
-  border-radius: 50%;
-  background: var(--badge-color);
-  color: var(--ink-dark);
+.markdown-preview :deep(.sl-media figcaption) {
+  margin-top: 10px;
+  color: var(--muted);
   font-weight: 900;
 }
 
-.flow-card h3 {
-  margin: 0 0 12px;
-  color: var(--ink-dark);
-  font-family: Georgia, serif;
-  font-size: 1.45rem;
-  line-height: 1.1;
+.navigator-collapsed .top-rule {
+  grid-template-columns: 58px minmax(0, 1fr) auto;
 }
 
-.flow-card p {
-  margin: 0;
-  color: var(--muted);
-  font-weight: 800;
+.navigator-collapsed .workspace-layout {
+  grid-template-columns: 58px minmax(300px, 0.92fr) minmax(360px, 1.12fr);
 }
 
-@media (max-width: 920px) {
-  .paper-shell {
-    padding: 26px;
+.navigator-collapsed .slide-navigator {
+  padding-right: 0;
+}
+
+@media (max-width: 1120px) {
+  .workspace-layout,
+  .navigator-collapsed .workspace-layout {
+    grid-template-columns: 150px minmax(0, 1fr);
+    grid-template-rows: minmax(360px, 0.88fr) minmax(420px, 1.12fr);
   }
 
-  .hero {
-    min-height: auto;
+  .slide-navigator {
+    grid-row: 1 / span 2;
+  }
+
+  .editor-pane,
+  .preview-pane {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 780px) {
+  .course-shell {
+    overflow: auto;
+  }
+
+  .top-rule {
     grid-template-columns: 1fr;
-    gap: 44px;
-    padding: 40px 0 84px;
+    gap: 12px;
+    padding-right: 16px;
   }
 
-  .demo-card {
-    min-height: 390px;
+  .lesson-stats {
+    justify-content: flex-start;
   }
 
-  .superpowers {
-    margin-top: 0;
-  }
-
-  .tile-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .flow-grid {
+  .workspace-layout,
+  .navigator-collapsed .workspace-layout {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(420px, 54vh) minmax(420px, auto);
+    padding: 18px;
+    overflow: visible;
+  }
+
+  .slide-navigator {
+    grid-row: auto;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .thumbnail-stack {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-items: stretch;
+    gap: 14px;
+  }
+
+  .slide-thumbnail {
+    width: 100%;
+    min-height: 106px;
+  }
+
+  .collapsed-slides {
+    width: auto;
+    grid-auto-flow: column;
+    justify-content: start;
+  }
+
+  .preview-stage {
+    overflow: visible;
+    padding-right: 0;
   }
 }
 
 @media (max-width: 560px) {
-  .paper-shell {
-    padding: 18px;
-    background-size: 20px 20px;
+  .top-rule {
+    min-height: 82px;
+    border-bottom-width: 4px;
   }
 
-  h1 {
-    font-size: clamp(3rem, 18vw, 4.6rem);
+  .workspace-layout,
+  .navigator-collapsed .workspace-layout {
+    padding: 14px;
   }
 
-  .hero-actions {
-    display: grid;
+  .thumbnail-stack {
+    grid-template-columns: 1fr;
   }
 
-  .paper-button {
-    width: 100%;
+  .slide-thumbnail {
+    min-height: 84px;
   }
 
-  .demo-card {
-    min-height: 330px;
-    padding: 54px 18px 28px;
+  .preview-slide {
+    padding: 22px 16px;
     border-width: 3px;
-    box-shadow: 10px 10px 0 rgba(47, 65, 82, 0.16);
+    box-shadow: 10px 10px 0 rgba(47, 65, 82, 0.18);
   }
 
-  .step-badge {
-    top: -18px;
-    left: -12px;
-    width: 42px;
-    height: 42px;
-    border-width: 3px;
-  }
-
-  .card-heading {
-    gap: 10px;
-    font-size: 1.52rem;
-  }
-
-  .card-heading svg {
-    width: 40px;
-    height: 40px;
-  }
-
-  .output-capsule {
-    min-height: 118px;
-    grid-template-columns: 42px 1fr;
-    gap: 14px;
-    margin-top: 42px;
-    padding: 22px 18px;
-  }
-
-  .code-mark {
-    width: 42px;
-    height: 42px;
-  }
-
-  .status-strip {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .shield-mark {
-    width: 136px;
-    height: 136px;
-    border-radius: 32px;
-    box-shadow: 12px 12px 0 var(--ink);
-  }
-
-  .paper-title {
-    margin-bottom: 34px;
-  }
-
-  .tile-row {
-    gap: 16px;
-  }
-
-  .paper-tile {
-    min-height: 126px;
-    border-width: 3px;
-    box-shadow: 7px 7px 0 var(--ink);
-  }
-
-  .paper-tile svg {
-    width: 44px;
-    height: 44px;
+  .markdown-preview :deep(h1) {
+    font-size: clamp(2.3rem, 15vw, 3.6rem);
+    text-shadow: 3px 3px 0 var(--ink);
   }
 }
 
