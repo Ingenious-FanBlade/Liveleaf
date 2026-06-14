@@ -65,7 +65,43 @@ Key work:
 - Executable code block component.
 - Output display component.
 
-## Phase 4: Authoring Experience
+## Phase 4: Fullscreen Presentation And Project Package
+
+Goals:
+
+- Make Stream Learn usable for classroom presentation and easy distribution.
+
+Key work:
+
+- Fullscreen presentation mode.
+- Keyboard navigation and presentation controls.
+- Presentation-safe media rendering for images, videos, and audio.
+- Save project command.
+- Stream Learn project package format.
+- Bundle Markdown source, project metadata, images, videos, audio, and other
+  referenced assets into one distributable file.
+- Open and validate packaged projects.
+- Resource path rewriting inside packaged projects.
+
+## Phase 5: Markdown Highlighting And Functional Symbols
+
+Goals:
+
+- Make Markdown authoring clearer by highlighting code, text, and Stream Learn
+  functional syntax.
+
+Key work:
+
+- Syntax highlighting for fenced code blocks.
+- Inline code highlighting.
+- Markdown text highlight settings.
+- Highlight Stream Learn functional symbols, including slide separators,
+  runnable code markers, exercise markers, directives, media blocks, hints, and
+  solutions.
+- Theme-aware highlight colors for editor, preview, and presentation mode.
+- Highlight settings saved with the project.
+
+## Phase 6: Authoring Experience
 
 Goals:
 
@@ -74,12 +110,13 @@ Goals:
 Key work:
 
 - Split editor and preview.
-- Save files.
 - Run current code block.
 - Course resource path handling.
 - Basic settings.
+- Project metadata editing.
+- Unsaved-change handling.
 
-## Phase 5: Student Exercise Flow
+## Phase 7: Student Exercise Flow
 
 Goals:
 
@@ -93,7 +130,7 @@ Key work:
 - Optional public tests.
 - Result display.
 
-## Phase 6: Better Runtime Sessions
+## Phase 8: Better Runtime Sessions
 
 Goals:
 
@@ -107,16 +144,15 @@ Key work:
 - Interrupt execution.
 - Session status UI.
 
-## Phase 7: Export And Distribution
+## Phase 9: Export Beyond Project Packages
 
 Goals:
 
-- Help teachers share course materials.
+- Support additional sharing formats after the native package format is stable.
 
 Key work:
 
 - Static HTML export.
 - Teacher and student export modes.
 - Optional PDF export.
-- Course package format.
-
+- Compatibility checks for packaged projects.
