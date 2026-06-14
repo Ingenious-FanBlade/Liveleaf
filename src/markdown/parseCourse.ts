@@ -18,6 +18,10 @@ interface SlideSource {
   source: string;
 }
 
+export interface ParseCourseOptions {
+  resolveResourceUrl?: (src: string) => string;
+}
+
 interface ContainerToken {
   info: string;
   nesting: number;
@@ -47,9 +51,9 @@ const revealLabels: Record<string, string> = {
   solution: "Solution",
 };
 
-export function parseCourse(source: string): CourseDocument {
+export function parseCourse(source: string, options: ParseCourseOptions = {}): CourseDocument {
   const slideSources = splitSlides(source);
-  const slides = slideSources.map((slideSource) => renderSlide(slideSource));
+  const slides = slideSources.map((slideSource) => renderSlide(slideSource, options));
   const codeCells = slides.flatMap((slide) => slide.codeCells);
 
   return {
@@ -60,9 +64,9 @@ export function parseCourse(source: string): CourseDocument {
   };
 }
 
-function renderSlide(slideSource: SlideSource): CourseSlide {
+function renderSlide(slideSource: SlideSource, options: ParseCourseOptions): CourseSlide {
   const codeCells: CodeCell[] = [];
-  const markdown = createMarkdownRenderer(slideSource.index, codeCells);
+  const markdown = createMarkdownRenderer(slideSource.index, codeCells, options);
   const html = markdown.render(slideSource.source);
 
   return {
@@ -75,7 +79,11 @@ function renderSlide(slideSource: SlideSource): CourseSlide {
   };
 }
 
-function createMarkdownRenderer(slideIndex: number, codeCells: CodeCell[]) {
+function createMarkdownRenderer(
+  slideIndex: number,
+  codeCells: CodeCell[],
+  rendererOptions: ParseCourseOptions,
+) {
   const markdown = new MarkdownIt({
     breaks: false,
     html: false,
@@ -95,7 +103,22 @@ function createMarkdownRenderer(slideIndex: number, codeCells: CodeCell[]) {
   }
 
   markdown.use(columnsDirectivePlugin);
-  markdown.use(mediaDirectivePlugin);
+  markdown.use((instance) => mediaDirectivePlugin(instance, rendererOptions));
+
+  const defaultImage =
+    markdown.renderer.rules.image ??
+    ((tokens, index, options, _env, self) => self.renderToken(tokens, index, options));
+
+  markdown.renderer.rules.image = (tokens, index, options, _env, self) => {
+    const token = tokens[index];
+    const src = token.attrGet("src");
+
+    if (src) {
+      token.attrSet("src", resolveResourceUrl(src, rendererOptions));
+    }
+
+    return defaultImage(tokens, index, options, _env, self);
+  };
 
   const defaultFence =
     markdown.renderer.rules.fence ??
@@ -335,7 +358,7 @@ function columnsDirectivePlugin(markdown: MarkdownIt) {
   };
 }
 
-function mediaDirectivePlugin(markdown: MarkdownIt) {
+function mediaDirectivePlugin(markdown: MarkdownIt, rendererOptions: ParseCourseOptions) {
   markdown.block.ruler.before(
     "paragraph",
     "stream_learn_media",
@@ -378,7 +401,12 @@ function mediaDirectivePlugin(markdown: MarkdownIt) {
       params: ParsedParams;
     };
     const label = markdown.utils.escapeHtml(meta.label);
-    const src = markdown.utils.escapeHtml(resourceUrlWithStart(meta.src, meta.params.attrs.start));
+    const src = markdown.utils.escapeHtml(
+      resourceUrlWithStart(
+        resolveResourceUrl(meta.src, rendererOptions),
+        meta.params.attrs.start,
+      ),
+    );
     const width = safeCssWidth(meta.params.attrs.width);
     const style = width ? ` style="--media-width: ${markdown.utils.escapeHtml(width)}"` : "";
     const controls = meta.params.flags.has("controls") ? " controls" : "";
@@ -388,7 +416,9 @@ function mediaDirectivePlugin(markdown: MarkdownIt) {
     }
 
     const poster = meta.params.attrs.poster
-      ? ` poster="${markdown.utils.escapeHtml(meta.params.attrs.poster)}"`
+      ? ` poster="${markdown.utils.escapeHtml(
+          resolveResourceUrl(meta.params.attrs.poster, rendererOptions),
+        )}"`
       : "";
 
     return `<figure class="sl-media sl-media--video"${style}><video src="${src}"${controls}${poster}></video>${label ? `<figcaption>${label}</figcaption>` : ""}</figure>\n`;
@@ -465,8 +495,13 @@ function renderCodeCell(
   const metaHtml = metaItems
     .map((item) => `<span>${markdown.utils.escapeHtml(String(item))}</span>`)
     .join("");
+  const runButton =
+    cell.language.toLowerCase() === "python"
+      ? `<button class="sl-code-cell__run" type="button" data-code-cell-run="${escapedId}" aria-label="Run ${escapedId}">Run</button>`
+      : "";
+  const outputSlotId = markdown.utils.escapeHtml(encodeURIComponent(cell.id));
 
-  return `<section class="sl-code-cell sl-code-cell--${cell.kind}" data-code-cell-id="${escapedId}"><div class="sl-code-cell__header"><strong>${escapedId}</strong><div>${metaHtml}</div></div><pre><code class="language-${escapedLanguage}">${escapedCode}</code></pre></section>\n`;
+  return `<section class="sl-code-cell sl-code-cell--${cell.kind}" data-code-cell-id="${escapedId}"><div class="sl-code-cell__header"><strong>${escapedId}</strong><div class="sl-code-cell__meta">${metaHtml}</div>${runButton}</div><pre><code class="language-${escapedLanguage}">${escapedCode}</code></pre><div class="sl-code-cell__output-slot" data-code-cell-output="${outputSlotId}"></div></section>\n`;
 }
 
 function parseCodeInfo(info: string): CodeInfo {
@@ -574,4 +609,8 @@ function resourceUrlWithStart(src: string, start: string | undefined) {
   }
 
   return `${trimmedSrc}#t=${start}`;
+}
+
+function resolveResourceUrl(src: string, options: ParseCourseOptions) {
+  return options.resolveResourceUrl?.(src) ?? src;
 }
