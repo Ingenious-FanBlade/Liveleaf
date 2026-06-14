@@ -1,7 +1,17 @@
 <script setup lang="ts">
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { computed, nextTick, ref, watch } from "vue";
 import type { ComponentPublicInstance } from "vue";
 import { parseCourse } from "./markdown/parseCourse";
+import type { CodeCell, CourseSlide } from "./markdown/documentModel";
+import { openProjectPackage, saveProjectPackage } from "./project/projectPackageClient";
+import type {
+  OpenProjectPackageResponse,
+  SaveProjectPackageResponse,
+} from "./project/projectPackageClient";
+import { PythonRuntimeClient } from "./runtime/PythonRuntimeClient";
+import type { RunResult } from "./runtime/runResult";
 
 const starterSource = `# Python Basics
 
@@ -53,10 +63,39 @@ const isNavigatorOpen = ref(true);
 const activeSlideId = ref("slide-1");
 const previewStageRef = ref<HTMLElement | null>(null);
 const slideRefs = new Map<string, HTMLElement>();
+const pythonRuntime = new PythonRuntimeClient();
+const currentSourceFilePath = ref<string | undefined>();
+const currentWorkingDirectory = ref<string | undefined>();
+const currentPackagePath = ref<string | undefined>();
+const packageResourceUrls = ref<Record<string, string>>({});
 
-const course = computed(() => parseCourse(source.value));
+const course = computed(() =>
+  parseCourse(source.value, {
+    resolveResourceUrl: resolvePreviewResourceUrl,
+  }),
+);
 
 type TemplateRef = Element | ComponentPublicInstance | null;
+type CellRunStatus = RunResult["status"] | "pending";
+type ProjectSaveStatusKind = "idle" | "opening" | "saving" | "success" | "error";
+
+interface CellRunState {
+  status: CellRunStatus;
+  result?: RunResult;
+  message?: string;
+}
+
+interface ProjectSaveStatus {
+  kind: ProjectSaveStatusKind;
+  message?: string;
+  warnings?: string[];
+}
+
+const runStates = ref<Record<string, CellRunState>>({});
+const isOpeningProject = ref(false);
+const isSavingProject = ref(false);
+const projectSaveStatus = ref<ProjectSaveStatus>({ kind: "idle" });
+const isProjectBusy = computed(() => isOpeningProject.value || isSavingProject.value);
 
 watch(
   () => course.value.slides.map((slide) => slide.id).join(","),
@@ -66,6 +105,14 @@ watch(
     }
   },
 );
+
+watch(source, () => {
+  runStates.value = {};
+
+  if (projectSaveStatus.value.kind === "success") {
+    projectSaveStatus.value = { kind: "idle" };
+  }
+});
 
 function setSlideRef(slideId: string, element: TemplateRef) {
   if (element instanceof HTMLElement) {
@@ -101,6 +148,110 @@ function toggleNavigator() {
   isNavigatorOpen.value = !isNavigatorOpen.value;
 }
 
+async function handleOpenProject() {
+  if (isProjectBusy.value) {
+    return;
+  }
+
+  if (!isTauriRuntime()) {
+    projectSaveStatus.value = {
+      kind: "error",
+      message: "Project packages can be opened in the Tauri desktop app.",
+    };
+    return;
+  }
+
+  try {
+    const selectedPath = await open({
+      title: "Open Stream Learn Project",
+      multiple: false,
+      filters: [
+        {
+          name: "Stream Learn Project",
+          extensions: ["slpkg"],
+        },
+      ],
+    });
+    const packagePath = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
+
+    if (!packagePath) {
+      return;
+    }
+
+    isOpeningProject.value = true;
+    projectSaveStatus.value = {
+      kind: "opening",
+      message: "Opening project package...",
+    };
+
+    const result = await openProjectPackage({ packagePath });
+    loadOpenedProject(result);
+  } catch (error) {
+    projectSaveStatus.value = {
+      kind: "error",
+      message: errorMessage(error),
+    };
+  } finally {
+    isOpeningProject.value = false;
+  }
+}
+
+async function handleSaveProject() {
+  if (isProjectBusy.value) {
+    return;
+  }
+
+  if (!isTauriRuntime()) {
+    projectSaveStatus.value = {
+      kind: "error",
+      message: "Project packages can be saved in the Tauri desktop app.",
+    };
+    return;
+  }
+
+  try {
+    const selectedPath = await save({
+      title: "Save Stream Learn Project",
+      defaultPath: `${sanitizeProjectFileName(course.value.title)}.slpkg`,
+      filters: [
+        {
+          name: "Stream Learn Project",
+          extensions: ["slpkg"],
+        },
+      ],
+    });
+
+    if (!selectedPath) {
+      return;
+    }
+
+    isSavingProject.value = true;
+    projectSaveStatus.value = {
+      kind: "saving",
+      message: "Saving project package...",
+    };
+
+    const result = await saveProjectPackage({
+      source: source.value,
+      outputPath: withProjectPackageExtension(selectedPath),
+      sourceFilePath: currentSourceFilePath.value,
+    });
+
+    projectSaveStatus.value = {
+      kind: "success",
+      message: saveProjectSummary(result),
+      warnings: result.warnings,
+    };
+  } catch (error) {
+    projectSaveStatus.value = {
+      kind: "error",
+      message: errorMessage(error),
+    };
+  } finally {
+    isSavingProject.value = false;
+  }
+}
+
 function updateActiveSlideFromScroll() {
   const stage = previewStageRef.value;
   if (!stage) {
@@ -128,6 +279,225 @@ function updateActiveSlideFromScroll() {
   }
 
   activeSlideId.value = closestSlideId;
+}
+
+function handlePreviewClick(event: MouseEvent) {
+  if (!(event.target instanceof Element)) {
+    return;
+  }
+
+  const runButton = event.target.closest<HTMLButtonElement>("[data-code-cell-run]");
+  const cellId = runButton?.dataset.codeCellRun;
+
+  if (!runButton || !cellId || !previewStageRef.value?.contains(runButton)) {
+    return;
+  }
+
+  const cell = course.value.codeCells.find((candidate) => candidate.id === cellId);
+
+  if (!cell) {
+    return;
+  }
+
+  void runCodeCell(cell);
+}
+
+async function runCodeCell(cell: CodeCell) {
+  const existingState = runStates.value[cell.id];
+
+  if (existingState?.status === "pending") {
+    return;
+  }
+
+  if (cell.language.toLowerCase() !== "python") {
+    setRunState(cell.id, {
+      status: "error",
+      message: `No runtime is configured for ${cell.language}.`,
+    });
+    return;
+  }
+
+  setRunState(cell.id, { status: "pending" });
+
+  try {
+    const result = await pythonRuntime.runCodeCell({
+      source: source.value,
+      cellId: cell.id,
+      filePath: currentSourceFilePath.value,
+      workingDirectory: currentWorkingDirectory.value,
+    });
+
+    setRunState(cell.id, {
+      status: result.status,
+      result,
+    });
+  } catch (error) {
+    setRunState(cell.id, {
+      status: "error",
+      message: errorMessage(error),
+    });
+  }
+}
+
+function setRunState(cellId: string, state: CellRunState) {
+  runStates.value = {
+    ...runStates.value,
+    [cellId]: state,
+  };
+}
+
+function visibleRunCells(slide: CourseSlide) {
+  return slide.codeCells.filter((cell) => runStates.value[cell.id]);
+}
+
+function runStateFor(cellId: string) {
+  return runStates.value[cellId];
+}
+
+function runtimeOutputTarget(cellId: string) {
+  return `[data-code-cell-output="${encodeURIComponent(cellId)}"]`;
+}
+
+function statusLabel(status: CellRunStatus | undefined) {
+  switch (status) {
+    case "pending":
+      return "Running";
+    case "success":
+      return "Success";
+    case "error":
+      return "Error";
+    case "timeout":
+      return "Timeout";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return "Ready";
+  }
+}
+
+function formatDuration(result: RunResult | undefined) {
+  return result ? `${result.durationMs} ms` : "";
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isTauriRuntime() {
+  return "__TAURI_INTERNALS__" in window;
+}
+
+function sanitizeProjectFileName(title: string) {
+  const sanitized = title
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/\s+/g, " ")
+    .slice(0, 80)
+    .trim();
+
+  return sanitized || "untitled-lesson";
+}
+
+function withProjectPackageExtension(path: string) {
+  return path.toLowerCase().endsWith(".slpkg") ? path : `${path}.slpkg`;
+}
+
+function saveProjectSummary(result: SaveProjectPackageResponse) {
+  const parts = [`Saved ${result.bundledAssetCount} assets`];
+
+  if (result.missingAssetCount > 0) {
+    parts.push(`${result.missingAssetCount} missing`);
+  }
+
+  if (result.externalAssetCount > 0) {
+    parts.push(`${result.externalAssetCount} external`);
+  }
+
+  if (result.warnings.length > 0) {
+    parts.push(`${result.warnings.length} warnings`);
+  }
+
+  return parts.join(" / ");
+}
+
+function loadOpenedProject(result: OpenProjectPackageResponse) {
+  packageResourceUrls.value = resourceUrlMapFromOpenedProject(result);
+  currentPackagePath.value = result.packagePath;
+  currentSourceFilePath.value = result.sourceFilePath;
+  currentWorkingDirectory.value = result.workingDirectory;
+  source.value = result.source;
+  activeSlideId.value = "slide-1";
+  projectSaveStatus.value = {
+    kind: "success",
+    message: openProjectSummary(result),
+    warnings: result.warnings,
+  };
+
+  nextTick(() => {
+    previewStageRef.value?.scrollTo({ top: 0, behavior: "auto" });
+  });
+}
+
+function resourceUrlMapFromOpenedProject(result: OpenProjectPackageResponse) {
+  const map: Record<string, string> = {};
+
+  for (const asset of result.assets) {
+    if (asset.status !== "bundled" || !asset.filePath) {
+      continue;
+    }
+
+    const fileUrl = convertFileSrc(asset.filePath);
+    const { base, suffix } = splitResourceSuffix(asset.source);
+
+    map[asset.source] = `${fileUrl}${suffix}`;
+    map[base] ??= fileUrl;
+  }
+
+  return map;
+}
+
+function resolvePreviewResourceUrl(src: string) {
+  const exact = packageResourceUrls.value[src];
+
+  if (exact) {
+    return exact;
+  }
+
+  const { base, suffix } = splitResourceSuffix(src);
+  const baseUrl = packageResourceUrls.value[base];
+
+  return baseUrl ? `${baseUrl}${suffix}` : src;
+}
+
+function splitResourceSuffix(src: string) {
+  const markerIndex = src.search(/[?#]/);
+
+  if (markerIndex === -1) {
+    return { base: src, suffix: "" };
+  }
+
+  return {
+    base: src.slice(0, markerIndex),
+    suffix: src.slice(markerIndex),
+  };
+}
+
+function openProjectSummary(result: OpenProjectPackageResponse) {
+  const parts = [`Opened ${result.bundledAssetCount} assets`];
+
+  if (result.missingAssetCount > 0) {
+    parts.push(`${result.missingAssetCount} missing`);
+  }
+
+  if (result.externalAssetCount > 0) {
+    parts.push(`${result.externalAssetCount} external`);
+  }
+
+  if (result.warnings.length > 0) {
+    parts.push(`${result.warnings.length} warnings`);
+  }
+
+  return parts.join(" / ");
 }
 </script>
 
@@ -163,9 +533,53 @@ function updateActiveSlideFromScroll() {
         <strong>{{ course.title }}</strong>
       </div>
 
-      <div class="lesson-stats" aria-label="Document stats">
-        <span>{{ course.codeCells.length }} code</span>
-        <span>{{ source.length }} chars</span>
+      <div class="lesson-actions">
+        <button
+          class="save-project-button"
+          type="button"
+          :disabled="isProjectBusy"
+          :aria-busy="isOpeningProject"
+          title="Open project package"
+          @click="handleOpenProject"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h6l2 2h8v10H4z" />
+            <path d="M12 14h6" />
+            <path d="m15 11 3 3-3 3" />
+          </svg>
+          <span>{{ isOpeningProject ? "Opening" : "Open Project" }}</span>
+        </button>
+
+        <button
+          class="save-project-button"
+          type="button"
+          :disabled="isProjectBusy"
+          :aria-busy="isSavingProject"
+          title="Save project package"
+          @click="handleSaveProject"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 4h10l4 4v12H5z" />
+            <path d="M8 4v6h8" />
+            <path d="M8 17h8" />
+          </svg>
+          <span>{{ isSavingProject ? "Saving" : "Save Project" }}</span>
+        </button>
+
+        <p
+          v-if="projectSaveStatus.kind !== 'idle'"
+          class="save-project-status"
+          :class="`save-project-status--${projectSaveStatus.kind}`"
+          :title="projectSaveStatus.warnings?.join('\n')"
+        >
+          {{ projectSaveStatus.message }}
+        </p>
+
+        <div class="lesson-stats" aria-label="Document stats">
+          <span v-if="currentPackagePath" title="Loaded package">.slpkg</span>
+          <span>{{ course.codeCells.length }} code</span>
+          <span>{{ source.length }} chars</span>
+        </div>
       </div>
     </header>
 
@@ -229,6 +643,7 @@ function updateActiveSlideFromScroll() {
           ref="previewStageRef"
           class="preview-stage"
           aria-label="实时预览"
+          @click="handlePreviewClick"
           @scroll.passive="updateActiveSlideFromScroll"
         >
           <article
@@ -251,6 +666,69 @@ function updateActiveSlideFromScroll() {
               class="markdown-preview"
               v-html="slide.html"
             />
+
+            <Teleport
+              v-for="cell in visibleRunCells(slide)"
+              :key="cell.id"
+              :to="runtimeOutputTarget(cell.id)"
+            >
+              <section
+                class="runtime-output"
+                :class="`runtime-output--${runStateFor(cell.id)?.status ?? 'pending'}`"
+                :aria-label="`${cell.id} runtime output`"
+              >
+                <header class="runtime-output__header">
+                  <div>
+                    <span>Output</span>
+                    <strong>{{ cell.id }}</strong>
+                  </div>
+                  <span class="runtime-output__status">
+                    {{ statusLabel(runStateFor(cell.id)?.status) }}
+                  </span>
+                </header>
+
+                <p
+                  v-if="runStateFor(cell.id)?.status === 'pending'"
+                  class="runtime-output__message"
+                >
+                  Running locally...
+                </p>
+
+                <p
+                  v-else-if="runStateFor(cell.id)?.message"
+                  class="runtime-output__message runtime-output__message--error"
+                >
+                  {{ runStateFor(cell.id)?.message }}
+                </p>
+
+                <template v-if="runStateFor(cell.id)?.result">
+                  <pre
+                    v-if="runStateFor(cell.id)?.result?.stdout"
+                    class="runtime-output__stream"
+                  ><code>{{ runStateFor(cell.id)?.result?.stdout }}</code></pre>
+
+                  <pre
+                    v-if="runStateFor(cell.id)?.result?.stderr"
+                    class="runtime-output__stream runtime-output__stream--stderr"
+                  ><code>{{ runStateFor(cell.id)?.result?.stderr }}</code></pre>
+
+                  <p
+                    v-if="runStateFor(cell.id)?.result?.error?.message"
+                    class="runtime-output__message"
+                    :class="{
+                      'runtime-output__message--error':
+                        runStateFor(cell.id)?.result?.status !== 'success',
+                    }"
+                  >
+                    {{ runStateFor(cell.id)?.result?.error?.message }}
+                  </p>
+
+                  <span class="runtime-output__duration">
+                    {{ formatDuration(runStateFor(cell.id)?.result) }}
+                  </span>
+                </template>
+              </section>
+            </Teleport>
           </article>
         </div>
       </section>
@@ -272,6 +750,8 @@ function updateActiveSlideFromScroll() {
   --green: #4e8b6f;
   --shadow: #2f4152;
   --line-soft: rgba(51, 68, 84, 0.08);
+  --scrollbar-thumb: rgba(51, 68, 84, 0.34);
+  --scrollbar-thumb-hover: rgba(51, 68, 84, 0.52);
   color: var(--ink-dark);
   background: var(--paper);
   font-family: Nunito, Inter, "Segoe UI", system-ui, sans-serif;
@@ -285,6 +765,37 @@ function updateActiveSlideFromScroll() {
 
 * {
   box-sizing: border-box;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
 }
 
 body {
@@ -330,6 +841,7 @@ textarea {
 
 .navigator-head,
 .lesson-title,
+.lesson-actions,
 .lesson-stats,
 .pane-title,
 .slide-meta {
@@ -383,6 +895,7 @@ textarea {
 }
 
 .fold-button:focus-visible,
+.save-project-button:focus-visible,
 .slide-thumbnail:focus-visible,
 .slide-dot:focus-visible,
 .source-editor:focus-visible {
@@ -435,6 +948,88 @@ textarea {
   white-space: nowrap;
 }
 
+.lesson-actions {
+  min-width: 0;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.save-project-button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 4px solid var(--ink);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-dark);
+  box-shadow: 6px 6px 0 var(--shadow);
+  cursor: pointer;
+  font-weight: 900;
+  white-space: nowrap;
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.save-project-button svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.save-project-button:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0 var(--shadow);
+}
+
+.save-project-button:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+
+.save-project-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.save-project-status {
+  max-width: min(320px, 100%);
+  margin: 0;
+  padding: 5px 10px;
+  overflow: hidden;
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  background: var(--paper-soft);
+  color: var(--ink-dark);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.save-project-status--success {
+  border-color: var(--green);
+}
+
+.save-project-status--error {
+  border-color: var(--red);
+  color: #9b2721;
+}
+
+.save-project-status--opening,
+.save-project-status--saving {
+  border-color: var(--blue);
+}
+
 .lesson-stats span,
 .pane-title strong,
 .slide-meta strong,
@@ -468,7 +1063,9 @@ textarea {
 }
 
 .slide-navigator {
+  overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 0 12px 28px 0;
 }
 
@@ -553,7 +1150,7 @@ textarea {
 }
 
 .collapsed-slides {
-  width: 54px;
+  width: 48px;
   display: grid;
   gap: 12px;
   justify-items: center;
@@ -842,7 +1439,7 @@ textarea {
   font-weight: 900;
 }
 
-.markdown-preview :deep(.sl-code-cell__header div) {
+.markdown-preview :deep(.sl-code-cell__meta) {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
@@ -856,13 +1453,35 @@ textarea {
   color: var(--ink-dark);
 }
 
-.markdown-preview :deep(.sl-code-cell pre) {
+.markdown-preview :deep(.sl-code-cell__run) {
+  min-height: 30px;
+  padding: 3px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: var(--yellow);
+  color: var(--ink-dark);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.markdown-preview :deep(.sl-code-cell__run:hover) {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 rgba(47, 65, 82, 0.28);
+}
+
+.markdown-preview :deep(.sl-code-cell > pre) {
   margin: 0;
   padding: 20px;
   overflow: auto;
   background: transparent;
   color: var(--surface);
   line-height: 1.68;
+}
+
+.markdown-preview :deep(.sl-code-cell__output-slot:not(:empty)) {
+  padding: 0 16px 16px;
 }
 
 .markdown-preview :deep(.sl-code-cell--exercise .sl-code-cell__header) {
@@ -890,16 +1509,132 @@ textarea {
   font-weight: 900;
 }
 
+.runtime-output {
+  padding: 14px 16px;
+  border: 4px solid var(--ink);
+  border-radius: 10px;
+  background: var(--paper-soft);
+  color: var(--ink-dark);
+  box-shadow: 8px 8px 0 rgba(47, 65, 82, 0.14);
+}
+
+.runtime-output--success {
+  border-color: var(--green);
+}
+
+.runtime-output--error,
+.runtime-output--timeout {
+  border-color: var(--red);
+}
+
+.runtime-output__header {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.runtime-output__header div {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.runtime-output__header span {
+  color: var(--green);
+  font-weight: 900;
+}
+
+.runtime-output__header strong {
+  min-width: 0;
+  color: var(--ink-dark);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.runtime-output__status,
+.runtime-output__duration {
+  width: max-content;
+  padding: 3px 9px;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: var(--yellow);
+  color: var(--ink-dark);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.runtime-output__message {
+  margin: 0;
+  color: var(--ink-dark);
+  font-weight: 900;
+}
+
+.runtime-output__message--error {
+  color: #9b2721;
+}
+
+.runtime-output__stream {
+  margin: 10px 0 0;
+  padding: 14px;
+  overflow: auto;
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-dark);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.markdown-preview :deep(.sl-code-cell .runtime-output__stream) {
+  padding: 14px;
+  background: var(--surface);
+  color: var(--ink-dark);
+  line-height: 1.55;
+}
+
+.runtime-output__stream--stderr {
+  border-color: var(--red);
+  background: #fff3ec;
+  color: #8f241f;
+}
+
+.markdown-preview :deep(.sl-code-cell .runtime-output__stream--stderr) {
+  background: #fff3ec;
+  color: #8f241f;
+}
+
+.runtime-output__stream code {
+  color: inherit;
+}
+
+.markdown-preview :deep(.sl-code-cell .runtime-output__stream code) {
+  color: inherit;
+}
+
+.runtime-output__duration {
+  display: inline-grid;
+  margin-top: 10px;
+  place-items: center;
+}
+
 .navigator-collapsed .top-rule {
-  grid-template-columns: 58px minmax(0, 1fr) auto;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
 }
 
 .navigator-collapsed .workspace-layout {
-  grid-template-columns: 58px minmax(300px, 0.92fr) minmax(360px, 1.12fr);
+  grid-template-columns: 72px minmax(300px, 0.92fr) minmax(360px, 1.12fr);
 }
 
 .navigator-collapsed .slide-navigator {
-  padding-right: 0;
+  padding-right: 8px;
 }
 
 @media (max-width: 1120px) {
@@ -934,6 +1669,10 @@ textarea {
     justify-content: flex-start;
   }
 
+  .lesson-actions {
+    justify-content: flex-start;
+  }
+
   .workspace-layout,
   .navigator-collapsed .workspace-layout {
     grid-template-columns: 1fr;
@@ -960,9 +1699,14 @@ textarea {
   }
 
   .collapsed-slides {
-    width: auto;
-    grid-auto-flow: column;
+    width: 100%;
+    grid-template-columns: repeat(auto-fill, 42px);
+    grid-auto-flow: row;
     justify-content: start;
+  }
+
+  .navigator-collapsed .slide-navigator {
+    padding-right: 0;
   }
 
   .preview-stage {
@@ -994,6 +1738,11 @@ textarea {
     padding: 22px 16px;
     border-width: 3px;
     box-shadow: 10px 10px 0 rgba(47, 65, 82, 0.18);
+  }
+
+  .save-project-status {
+    max-width: 100%;
+    white-space: normal;
   }
 
   .markdown-preview :deep(h1) {
