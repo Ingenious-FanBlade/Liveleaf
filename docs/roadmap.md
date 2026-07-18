@@ -2,7 +2,7 @@
 
 ## Phase 0: Design Baseline
 
-Status: current phase.
+Status: completed.
 
 Goals:
 
@@ -19,6 +19,8 @@ Deliverables:
 - Python runtime design.
 
 ## Phase 1: Markdown Course Viewer
+
+Status: completed.
 
 Goals:
 
@@ -37,6 +39,8 @@ Key work:
 
 ## Phase 2: Markdown Extensions
 
+Status: completed.
+
 Goals:
 
 - Support layout and teaching-specific blocks.
@@ -52,6 +56,8 @@ Key work:
 
 ## Phase 3: Python Runtime MVP
 
+Status: completed.
+
 Goals:
 
 - Run Python code blocks from Markdown.
@@ -66,6 +72,8 @@ Key work:
 - Output display component.
 
 ## Phase 4: Fullscreen Presentation And Project Package
+
+Status: completed.
 
 Goals:
 

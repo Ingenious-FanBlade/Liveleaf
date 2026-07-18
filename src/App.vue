@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ComponentPublicInstance } from "vue";
 import { parseCourse } from "./markdown/parseCourse";
 import type { CodeCell, CourseSlide } from "./markdown/documentModel";
@@ -62,6 +62,9 @@ const source = ref(starterSource);
 const isNavigatorOpen = ref(true);
 const activeSlideId = ref("slide-1");
 const previewStageRef = ref<HTMLElement | null>(null);
+const presentationRootRef = ref<HTMLElement | null>(null);
+const presentationScrollRef = ref<HTMLElement | null>(null);
+const isPresentationMode = ref(false);
 const slideRefs = new Map<string, HTMLElement>();
 const pythonRuntime = new PythonRuntimeClient();
 const currentSourceFilePath = ref<string | undefined>();
@@ -74,6 +77,25 @@ const course = computed(() =>
     resolveResourceUrl: resolvePreviewResourceUrl,
   }),
 );
+
+const activeSlideIndex = computed(() =>
+  course.value.slides.findIndex((slide) => slide.id === activeSlideId.value),
+);
+const activeSlide = computed(
+  () => course.value.slides[activeSlideIndex.value] ?? course.value.slides[0],
+);
+const isFirstSlide = computed(() => Math.max(activeSlideIndex.value, 0) <= 0);
+const isLastSlide = computed(() => {
+  const lastIndex = course.value.slides.length - 1;
+
+  return lastIndex <= 0 || Math.max(activeSlideIndex.value, 0) >= lastIndex;
+});
+const presentationSlideLabel = computed(() => {
+  const slideCount = course.value.slides.length;
+  const slideNumber = slideCount === 0 ? 0 : Math.max(activeSlideIndex.value, 0) + 1;
+
+  return `${slideNumber} / ${slideCount}`;
+});
 
 type TemplateRef = Element | ComponentPublicInstance | null;
 type CellRunStatus = RunResult["status"] | "pending";
@@ -114,6 +136,16 @@ watch(source, () => {
   }
 });
 
+onMounted(() => {
+  document.addEventListener("fullscreenchange", handleFullscreenChange);
+  window.addEventListener("keydown", handlePresentationKeydown);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  window.removeEventListener("keydown", handlePresentationKeydown);
+});
+
 function setSlideRef(slideId: string, element: TemplateRef) {
   if (element instanceof HTMLElement) {
     slideRefs.set(slideId, element);
@@ -134,11 +166,7 @@ function selectSlide(slideId: string) {
       return;
     }
 
-    const behavior: ScrollBehavior = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches
-      ? "auto"
-      : "smooth";
+    const behavior: ScrollBehavior = prefersReducedMotion() ? "auto" : "smooth";
 
     target.scrollIntoView({ behavior, block: "start", inline: "nearest" });
   });
@@ -146,6 +174,172 @@ function selectSlide(slideId: string) {
 
 function toggleNavigator() {
   isNavigatorOpen.value = !isNavigatorOpen.value;
+}
+
+async function enterPresentation() {
+  if (course.value.slides.length === 0) {
+    return;
+  }
+
+  isPresentationMode.value = true;
+  await nextTick();
+  resetPresentationScroll("auto");
+  presentationRootRef.value?.focus({ preventScroll: true });
+
+  if (!document.fullscreenElement && presentationRootRef.value?.requestFullscreen) {
+    try {
+      await presentationRootRef.value.requestFullscreen();
+    } catch {
+      // Keep the in-app presentation layer when system fullscreen is unavailable.
+    }
+  }
+}
+
+async function exitPresentation() {
+  const fullscreenElement = document.fullscreenElement;
+
+  if (fullscreenElement && fullscreenElement === presentationRootRef.value) {
+    try {
+      await document.exitFullscreen();
+    } catch {
+      // The local presentation state still needs to leave presentation mode.
+    }
+  }
+
+  isPresentationMode.value = false;
+  syncPreviewToActiveSlide();
+}
+
+function goToNextSlide() {
+  const slides = course.value.slides;
+  const currentIndex = Math.max(activeSlideIndex.value, 0);
+  const nextSlide = slides[currentIndex + 1];
+
+  if (!nextSlide) {
+    return;
+  }
+
+  activeSlideId.value = nextSlide.id;
+  resetPresentationScroll("auto");
+}
+
+function goToPreviousSlide() {
+  const slides = course.value.slides;
+  const currentIndex = Math.max(activeSlideIndex.value, 0);
+  const previousSlide = slides[currentIndex - 1];
+
+  if (!previousSlide) {
+    return;
+  }
+
+  activeSlideId.value = previousSlide.id;
+  resetPresentationScroll("auto");
+}
+
+function scrollPresentationSlide(direction: 1 | -1) {
+  const stage = presentationScrollRef.value;
+
+  if (!stage) {
+    return;
+  }
+
+  const behavior: ScrollBehavior = prefersReducedMotion() ? "auto" : "smooth";
+  const distance = Math.max(160, stage.clientHeight * 0.72);
+
+  stage.scrollBy({
+    top: direction * distance,
+    behavior,
+  });
+}
+
+function resetPresentationScroll(behavior: ScrollBehavior = "auto") {
+  nextTick(() => {
+    presentationScrollRef.value?.scrollTo({ top: 0, behavior });
+  });
+}
+
+function syncPreviewToActiveSlide() {
+  nextTick(() => {
+    const target = slideRefs.get(activeSlideId.value);
+
+    target?.scrollIntoView({ behavior: "auto", block: "start", inline: "nearest" });
+  });
+}
+
+function handleFullscreenChange() {
+  if (isPresentationMode.value && !document.fullscreenElement) {
+    isPresentationMode.value = false;
+    syncPreviewToActiveSlide();
+  }
+}
+
+function handlePresentationKeydown(event: KeyboardEvent) {
+  if (!isPresentationMode.value || shouldIgnorePresentationShortcut(event)) {
+    return;
+  }
+
+  if (event.shiftKey && event.key === "ArrowDown") {
+    event.preventDefault();
+    scrollPresentationSlide(1);
+    return;
+  }
+
+  if (event.shiftKey && event.key === "ArrowUp") {
+    event.preventDefault();
+    scrollPresentationSlide(-1);
+    return;
+  }
+
+  if (event.shiftKey) {
+    return;
+  }
+
+  switch (event.key) {
+    case "ArrowRight":
+    case "ArrowDown":
+    case "PageDown":
+    case " ":
+    case "Spacebar":
+    case "Enter":
+      event.preventDefault();
+      goToNextSlide();
+      break;
+    case "ArrowLeft":
+    case "ArrowUp":
+    case "PageUp":
+    case "Backspace":
+      event.preventDefault();
+      goToPreviousSlide();
+      break;
+    case "Escape":
+      event.preventDefault();
+      void exitPresentation();
+      break;
+  }
+}
+
+function shouldIgnorePresentationShortcut(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) {
+    return true;
+  }
+
+  if (!(event.target instanceof Element)) {
+    return false;
+  }
+
+  const interactiveTarget = event.target.closest(
+    "button, a, summary, input, textarea, select, option, video, audio, [role='button']",
+  );
+  const editableTarget = event.target.closest<HTMLElement>("[contenteditable]");
+
+  return Boolean(
+    interactiveTarget ||
+      (editableTarget && editableTarget.getAttribute("contenteditable") !== "false"),
+  );
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 async function handleOpenProject() {
@@ -282,6 +476,14 @@ function updateActiveSlideFromScroll() {
 }
 
 function handlePreviewClick(event: MouseEvent) {
+  handleCourseInteractionClick(event, previewStageRef.value);
+}
+
+function handlePresentationClick(event: MouseEvent) {
+  handleCourseInteractionClick(event, presentationRootRef.value);
+}
+
+function handleCourseInteractionClick(event: MouseEvent, container: HTMLElement | null) {
   if (!(event.target instanceof Element)) {
     return;
   }
@@ -289,7 +491,7 @@ function handlePreviewClick(event: MouseEvent) {
   const runButton = event.target.closest<HTMLButtonElement>("[data-code-cell-run]");
   const cellId = runButton?.dataset.codeCellRun;
 
-  if (!runButton || !cellId || !previewStageRef.value?.contains(runButton)) {
+  if (!runButton || !cellId || !container?.contains(runButton)) {
     return;
   }
 
@@ -503,6 +705,7 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
 
 <template>
   <main
+    v-if="!isPresentationMode"
     class="course-shell paper-bg"
     :class="{ 'navigator-collapsed': !isNavigatorOpen }"
     aria-label="Stream Learn markdown workspace"
@@ -534,6 +737,22 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
       </div>
 
       <div class="lesson-actions">
+        <button
+          class="save-project-button present-button"
+          type="button"
+          title="Start presentation"
+          @click="enterPresentation"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 4H4v4" />
+            <path d="M16 4h4v4" />
+            <path d="M20 16v4h-4" />
+            <path d="M4 16v4h4" />
+            <path d="M9 9h6v6H9z" />
+          </svg>
+          <span>Present</span>
+        </button>
+
         <button
           class="save-project-button"
           type="button"
@@ -671,6 +890,7 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
               v-for="cell in visibleRunCells(slide)"
               :key="cell.id"
               :to="runtimeOutputTarget(cell.id)"
+              defer
             >
               <section
                 class="runtime-output"
@@ -734,6 +954,157 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
       </section>
     </div>
   </main>
+
+  <section
+    v-else
+    ref="presentationRootRef"
+    class="presentation-shell paper-bg"
+    tabindex="-1"
+    aria-label="全屏演示"
+    @click="handlePresentationClick"
+  >
+    <header class="presentation-toolbar" aria-label="演示控制栏">
+      <div class="presentation-title">
+        <span>Stream Learn</span>
+        <strong>{{ activeSlide?.title ?? course.title }}</strong>
+      </div>
+
+      <div class="presentation-actions">
+        <button
+          class="presentation-control"
+          type="button"
+          :disabled="isFirstSlide"
+          title="Previous slide"
+          aria-label="上一页"
+          @click="goToPreviousSlide"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m15 6-6 6 6 6" />
+          </svg>
+        </button>
+
+        <span class="presentation-counter" aria-label="当前页码">
+          {{ presentationSlideLabel }}
+        </span>
+
+        <button
+          class="presentation-control"
+          type="button"
+          :disabled="isLastSlide"
+          title="Next slide"
+          aria-label="下一页"
+          @click="goToNextSlide"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m9 6 6 6-6 6" />
+          </svg>
+        </button>
+
+        <button
+          class="presentation-control presentation-control--exit"
+          type="button"
+          title="Exit presentation"
+          aria-label="退出演示"
+          @click="exitPresentation"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div
+      ref="presentationScrollRef"
+      class="presentation-scroll"
+      aria-label="当前幻灯片内容"
+    >
+      <article
+        v-if="activeSlide"
+        :key="activeSlide.id"
+        class="presentation-slide"
+        :aria-labelledby="`presentation-slide-title-${activeSlide.id}`"
+      >
+        <div class="slide-meta presentation-slide-meta">
+          <span>Slide {{ activeSlide.index + 1 }}</span>
+          <strong v-if="activeSlide.codeCells.length">
+            {{ activeSlide.codeCells.length }} code
+          </strong>
+        </div>
+
+        <div
+          :id="`presentation-slide-title-${activeSlide.id}`"
+          class="markdown-preview presentation-markdown"
+          v-html="activeSlide.html"
+        />
+
+        <Teleport
+          v-for="cell in visibleRunCells(activeSlide)"
+          :key="cell.id"
+          :to="runtimeOutputTarget(cell.id)"
+          defer
+        >
+          <section
+            class="runtime-output"
+            :class="`runtime-output--${runStateFor(cell.id)?.status ?? 'pending'}`"
+            :aria-label="`${cell.id} runtime output`"
+          >
+            <header class="runtime-output__header">
+              <div>
+                <span>Output</span>
+                <strong>{{ cell.id }}</strong>
+              </div>
+              <span class="runtime-output__status">
+                {{ statusLabel(runStateFor(cell.id)?.status) }}
+              </span>
+            </header>
+
+            <p
+              v-if="runStateFor(cell.id)?.status === 'pending'"
+              class="runtime-output__message"
+            >
+              Running locally...
+            </p>
+
+            <p
+              v-else-if="runStateFor(cell.id)?.message"
+              class="runtime-output__message runtime-output__message--error"
+            >
+              {{ runStateFor(cell.id)?.message }}
+            </p>
+
+            <template v-if="runStateFor(cell.id)?.result">
+              <pre
+                v-if="runStateFor(cell.id)?.result?.stdout"
+                class="runtime-output__stream"
+              ><code>{{ runStateFor(cell.id)?.result?.stdout }}</code></pre>
+
+              <pre
+                v-if="runStateFor(cell.id)?.result?.stderr"
+                class="runtime-output__stream runtime-output__stream--stderr"
+              ><code>{{ runStateFor(cell.id)?.result?.stderr }}</code></pre>
+
+              <p
+                v-if="runStateFor(cell.id)?.result?.error?.message"
+                class="runtime-output__message"
+                :class="{
+                  'runtime-output__message--error':
+                    runStateFor(cell.id)?.result?.status !== 'success',
+                }"
+              >
+                {{ runStateFor(cell.id)?.result?.error?.message }}
+              </p>
+
+              <span class="runtime-output__duration">
+                {{ formatDuration(runStateFor(cell.id)?.result) }}
+              </span>
+            </template>
+          </section>
+        </Teleport>
+      </article>
+    </div>
+  </section>
 </template>
 
 <style>
@@ -896,6 +1267,7 @@ textarea {
 
 .fold-button:focus-visible,
 .save-project-button:focus-visible,
+.presentation-control:focus-visible,
 .slide-thumbnail:focus-visible,
 .slide-dot:focus-visible,
 .source-editor:focus-visible {
@@ -999,6 +1371,10 @@ textarea {
 .save-project-button:disabled {
   cursor: wait;
   opacity: 0.72;
+}
+
+.present-button {
+  background: var(--yellow);
 }
 
 .save-project-status {
@@ -1313,6 +1689,7 @@ textarea {
 }
 
 .markdown-preview :deep(:not(.sl-code-cell) > pre) {
+  max-width: 100%;
   margin: 18px 0;
   padding: 18px;
   overflow: auto;
@@ -1334,6 +1711,17 @@ textarea {
   background: var(--paper-soft);
   color: var(--ink-dark);
   font-size: 0.9em;
+}
+
+.markdown-preview :deep(img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 20px 0;
+  border: 4px solid var(--ink);
+  border-radius: 12px;
+  background: var(--paper-soft);
+  box-shadow: 8px 8px 0 rgba(47, 65, 82, 0.16);
 }
 
 .markdown-preview :deep(.sl-columns) {
@@ -1414,6 +1802,7 @@ textarea {
 }
 
 .markdown-preview :deep(.sl-code-cell) {
+  max-width: 100%;
   margin: 20px 0;
   overflow: hidden;
   border: 4px solid var(--ink);
@@ -1472,6 +1861,7 @@ textarea {
 }
 
 .markdown-preview :deep(.sl-code-cell > pre) {
+  max-width: 100%;
   margin: 0;
   padding: 20px;
   overflow: auto;
@@ -1497,6 +1887,7 @@ textarea {
 .markdown-preview :deep(.sl-media video),
 .markdown-preview :deep(.sl-media audio) {
   width: 100%;
+  max-width: 100%;
   border: 4px solid var(--ink);
   border-radius: 12px;
   background: var(--paper-soft);
@@ -1625,6 +2016,182 @@ textarea {
   place-items: center;
 }
 
+.presentation-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  color: var(--ink-dark);
+  outline: none;
+}
+
+.presentation-shell:fullscreen {
+  width: 100vw;
+  height: 100vh;
+}
+
+.presentation-toolbar {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 24px;
+  border-bottom: 5px solid var(--ink);
+  background: rgba(251, 247, 234, 0.9);
+}
+
+.presentation-title {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--green);
+  font-weight: 900;
+}
+
+.presentation-title strong {
+  min-width: 0;
+  color: var(--ink-dark);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+  overflow-wrap: anywhere;
+}
+
+.presentation-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.presentation-control {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border: 4px solid var(--ink);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-dark);
+  box-shadow: 6px 6px 0 var(--shadow);
+  cursor: pointer;
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.presentation-control svg {
+  width: 25px;
+  height: 25px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.presentation-control:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0 var(--shadow);
+}
+
+.presentation-control:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+
+.presentation-control:disabled {
+  cursor: default;
+  opacity: 0.46;
+}
+
+.presentation-control--exit {
+  background: var(--red);
+  color: var(--surface);
+}
+
+.presentation-counter {
+  min-width: 76px;
+  min-height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 4px 12px;
+  border: 4px solid var(--ink);
+  border-radius: 999px;
+  background: var(--yellow);
+  color: var(--ink-dark);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.presentation-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: clamp(18px, 3vw, 34px) clamp(16px, 4vw, 48px)
+    clamp(28px, 5vw, 60px);
+}
+
+.presentation-slide {
+  width: min(1180px, 100%);
+  min-height: calc(100vh - 160px);
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 52px);
+  border: 4px solid var(--ink);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 14px 14px 0 rgba(47, 65, 82, 0.2);
+}
+
+.presentation-slide-meta {
+  margin-bottom: 30px;
+}
+
+.presentation-markdown {
+  font-size: 1.08rem;
+  line-height: 1.62;
+}
+
+.presentation-shell .markdown-preview :deep(h1) {
+  font-size: 4rem;
+}
+
+.presentation-shell .markdown-preview :deep(h2) {
+  font-size: 2.1rem;
+}
+
+.presentation-shell .markdown-preview :deep(.sl-code-cell > pre),
+.presentation-shell .markdown-preview :deep(:not(.sl-code-cell) > pre) {
+  max-height: 38vh;
+}
+
+.presentation-shell .runtime-output__stream {
+  max-height: 30vh;
+}
+
+.presentation-shell .markdown-preview :deep(.sl-media video) {
+  max-height: 58vh;
+  object-fit: contain;
+}
+
+.presentation-shell .markdown-preview :deep(img) {
+  max-height: 58vh;
+  object-fit: contain;
+}
+
+.presentation-shell .markdown-preview :deep(.sl-media audio) {
+  max-height: 72px;
+}
+
 .navigator-collapsed .top-rule {
   grid-template-columns: 72px minmax(0, 1fr) auto;
 }
@@ -1713,6 +2280,48 @@ textarea {
     overflow: visible;
     padding-right: 0;
   }
+
+  .presentation-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+
+  .presentation-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .presentation-scroll {
+    padding: 16px 16px 32px;
+  }
+
+  .presentation-slide {
+    min-height: calc(100vh - 176px);
+    padding: 24px 18px;
+    border-width: 3px;
+    box-shadow: 10px 10px 0 rgba(47, 65, 82, 0.2);
+  }
+
+  .presentation-shell .markdown-preview :deep(h1) {
+    font-size: 3rem;
+  }
+
+  .presentation-shell .markdown-preview :deep(.sl-columns) {
+    flex-wrap: wrap;
+  }
+
+  .presentation-shell .markdown-preview :deep(.sl-column) {
+    flex-basis: 100%;
+    padding: 14px 0 0;
+  }
+
+  .presentation-shell .markdown-preview :deep(.sl-column + .sl-column) {
+    margin-top: 14px;
+    border-top: 3px solid var(--ink);
+    border-left: 0;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1748,6 +2357,35 @@ textarea {
   .markdown-preview :deep(h1) {
     font-size: clamp(2.3rem, 15vw, 3.6rem);
     text-shadow: 3px 3px 0 var(--ink);
+  }
+
+  .presentation-title strong {
+    font-size: 1.1rem;
+  }
+
+  .presentation-control {
+    width: 42px;
+    height: 42px;
+    border-width: 3px;
+  }
+
+  .presentation-counter {
+    min-width: 64px;
+    min-height: 38px;
+    border-width: 3px;
+    font-size: 0.9rem;
+  }
+
+  .presentation-markdown {
+    font-size: 1rem;
+  }
+
+  .presentation-shell .markdown-preview :deep(h1) {
+    font-size: 2.55rem;
+  }
+
+  .presentation-shell .markdown-preview :deep(h2) {
+    font-size: 1.65rem;
   }
 }
 
