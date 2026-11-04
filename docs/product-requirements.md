@@ -2,7 +2,7 @@
 
 ## 1. Product Positioning
 
-Stream Learn is a desktop teaching and learning tool for computer science
+Liveleaf is a desktop teaching and learning tool for computer science
 courses.
 
 It is designed to replace PowerPoint in programming-related teaching scenarios
@@ -93,7 +93,7 @@ A student opens the same file:
 
 The teacher shares a course folder:
 
-- A `.sl.md` or `.md` file.
+- A `.ll.md` or `.md` file.
 - An `assets/` directory for images, videos, and other files.
 - Optional exercise tests and runtime metadata.
 
@@ -170,7 +170,7 @@ Example:
 
 ````markdown
 ```python run
-print("Hello, Stream Learn")
+print("Hello, Liveleaf")
 ```
 ````
 
@@ -228,11 +228,11 @@ Suggested course folder:
 
 ```text
 lesson-01/
-  lesson.sl.md
+  lesson.ll.md
   assets/
     diagram.png
     demo.mp4
-  .streamlearn/
+  .liveleaf/
     outputs.json
     student-edits.json
 ```

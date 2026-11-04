@@ -1,6 +1,6 @@
 ---
 name: paper-tutorial-ui
-description: "Frontend visual design system for a warm paper tutorial aesthetic inspired by educational explainer screenshots: off-white notebook backgrounds, subtle grid or paper grain, thick ink-like outlines, rounded cards, offset navy shadows, flat playful icons, serif editorial headings, and sparse instructional layouts. Use when designing or implementing Stream Learn screens, landing sections, onboarding flows, lesson cards, feature explainers, agent-output panels, or other front-end UI that should match this illustrated paper classroom style."
+description: "Frontend visual design system for a warm paper tutorial aesthetic inspired by educational explainer screenshots: off-white notebook backgrounds, subtle grid or paper grain, thick ink-like outlines, rounded cards, offset navy shadows, flat playful icons, serif editorial headings, and sparse instructional layouts. Use when designing or implementing Liveleaf screens, landing sections, onboarding flows, lesson cards, feature explainers, agent-output panels, or other front-end UI that should match this illustrated paper classroom style."
 ---
 
 # Paper Tutorial UI

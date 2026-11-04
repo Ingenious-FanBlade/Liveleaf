@@ -77,7 +77,7 @@ Status: completed.
 
 Goals:
 
-- Make Stream Learn usable for classroom presentation and easy distribution.
+- Make Liveleaf usable for classroom presentation and easy distribution.
 
 Key work:
 
@@ -85,7 +85,7 @@ Key work:
 - Keyboard navigation and presentation controls.
 - Presentation-safe media rendering for images, videos, and audio.
 - Save project command.
-- Stream Learn project package format.
+- Liveleaf project package format.
 - Bundle Markdown source, project metadata, images, videos, audio, and other
   referenced assets into one distributable file.
 - Open and validate packaged projects.
@@ -95,7 +95,7 @@ Key work:
 
 Goals:
 
-- Make Markdown authoring clearer by highlighting code, text, and Stream Learn
+- Make Markdown authoring clearer by highlighting code, text, and Liveleaf
   functional syntax.
 
 Key work:
@@ -103,7 +103,7 @@ Key work:
 - Syntax highlighting for fenced code blocks.
 - Inline code highlighting.
 - Markdown text highlight settings.
-- Highlight Stream Learn functional symbols, including slide separators,
+- Highlight Liveleaf functional symbols, including slide separators,
   runnable code markers, exercise markers, directives, media blocks, hints, and
   solutions.
 - Theme-aware highlight colors for editor, preview, and presentation mode.

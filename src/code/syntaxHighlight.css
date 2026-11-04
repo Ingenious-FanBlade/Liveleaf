@@ -1,0 +1,35 @@
+/* Shared palette for the Markdown editor, code cards and trace source snapshots. */
+.sl-code-theme {
+  --code-background: #334a5e;
+  --code-foreground: #fffdf5;
+  --code-keyword: #f8bd7f;
+  --code-variable: #a5def5;
+  --code-function: #b5e1aa;
+  --code-type: #ffd4b3;
+  --code-string: #f7dfa1;
+  --code-literal: #dfc2fa;
+  --code-comment: #b4c4cf;
+  --code-operator: #f4c2dc;
+  --code-meta: #c3d0d9;
+}
+
+.sl-code-theme .sl-syntax-keyword { color: var(--code-keyword); }
+.sl-code-theme .sl-syntax-variable { color: var(--code-variable); }
+.sl-code-theme .sl-syntax-function { color: var(--code-function); }
+.sl-code-theme .sl-syntax-type { color: var(--code-type); }
+.sl-code-theme .sl-syntax-string { color: var(--code-string); }
+.sl-code-theme .sl-syntax-literal { color: var(--code-literal); }
+.sl-code-theme .sl-syntax-comment { color: var(--code-comment); }
+.sl-code-theme .sl-syntax-operator { color: var(--code-operator); }
+.sl-code-theme .sl-syntax-meta { color: var(--code-meta); }
+.sl-code-theme .sl-syntax-heading { color: var(--code-string); font-weight: 800; }
+.sl-code-theme .sl-syntax-link { color: var(--code-variable); text-decoration: underline; }
+.sl-code-theme .sl-syntax-emphasis { font-style: italic; }
+.sl-code-theme .sl-syntax-strong { font-weight: 800; }
+
+/* Keep syntax colors readable while marking the next replay line. */
+.sl-code-theme .active-line {
+  background: #46576a;
+  box-shadow: inset 4px 0 0 #f3b642;
+  color: var(--code-foreground);
+}

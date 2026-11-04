@@ -2,7 +2,7 @@
 
 ## 1. Goal
 
-The first executable runtime in Stream Learn is Python.
+The first executable runtime in Liveleaf is Python.
 
 The Python runtime allows course authors to write runnable Python code blocks in
 Markdown and allows teachers or students to execute those blocks inside the
@@ -12,7 +12,7 @@ Example:
 
 ````markdown
 ```python run
-print("Hello, Stream Learn")
+print("Hello, Liveleaf")
 ```
 ````
 
@@ -354,7 +354,7 @@ Future safety work:
 
 ### Milestone 4: Output Persistence
 
-- Save latest run result in `.streamlearn/outputs.json`.
+- Save latest run result in `.liveleaf/outputs.json`.
 - Restore outputs when reopening the course.
 - Allow clearing outputs.
 

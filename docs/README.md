@@ -1,6 +1,6 @@
-# Stream Learn Documentation
+# Liveleaf Documentation
 
-Stream Learn is a Markdown-first teaching tool for computer science courses. It
+Liveleaf is a Markdown-first teaching tool for computer science courses. It
 combines lightweight slide authoring, notebook-style executable code blocks, and
 student-friendly self-study materials.
 
@@ -11,7 +11,13 @@ This documentation set is the first project design baseline.
 - [Product Requirements](./product-requirements.md)
 - [Technical Architecture](./technical-architecture.md)
 - [Markdown Syntax Design](./markdown-syntax.md)
+- [CLI 与 AI 自动化接口](./cli.md)
 - [Python Runtime Design](./python-runtime-design.md)
+- [Python Hook 可视化功能设计](./python-visualization-hook-design.md)
+- [可运行示例：数组与二叉树先序遍历](./examples/python-visualization.ll.md)
+- [Python Hook 有向图扩展](./python-graph-visualization.md)
+- [Python Hook Dynamic Table](./python-dynamic-table.md)
+- [可运行示例：有向图、Dijkstra 最短路径与动态表格](./examples/dijkstra.ll.md)
 - [Roadmap](./roadmap.md)
 
 ## Current Direction
@@ -26,7 +32,7 @@ The first development phase focuses on:
 
 ## Working Name
 
-The project name is `stream-learn`.
+The project name is `liveleaf`.
 
 The product meaning is:
 

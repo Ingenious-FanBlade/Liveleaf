@@ -1,3 +1,5 @@
+import type { VisualizationConfig, VisualizationDiagnostic } from "../runtime/visualization";
+
 export interface SourceRange {
   startLine: number;
   endLine: number;
@@ -12,6 +14,8 @@ export interface CodeCell {
   session?: string;
   sourceRange?: SourceRange;
   slideIndex: number;
+  visualization?: VisualizationConfig;
+  visualizationDiagnostics?: VisualizationDiagnostic[];
 }
 
 export interface CourseSlide {

@@ -1,3 +1,5 @@
+import type { VisualizationConfig } from "./visualization";
+
 export interface RuntimeAdapter {
   language: "python";
   run(request: RunRequest): Promise<RunResult>;
@@ -14,6 +16,7 @@ export interface RunRequest {
   timeoutMs: number;
   sessionId?: string;
   mode: "run" | "exercise";
+  visualization?: VisualizationConfig;
 }
 
 export interface RunCodeCellRequest {

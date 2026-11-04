@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Liveleaf 活页 app icon, 48px and up, transparent background. Small sizes use liveleaf-small.svg. -->
+  <!-- Artwork drawn on a 240x340 portrait page, then scaled 1.12x and centred to fill the canvas. -->
+  <g transform="translate(256 256) scale(1.12) translate(-263 -270.5)">
+    <!-- page: offset shadow, sheet, dog-ear -->
+    <path d="M136 124 H274 L350 200 V438 Q350 464 324 464 H136 Q110 464 110 438 V150 Q110 124 136 124 Z" fill="#334454" transform="translate(18 18)"/>
+    <path d="M136 124 H274 L350 200 V438 Q350 464 324 464 H136 Q110 464 110 438 V150 Q110 124 136 124 Z" fill="#FFFDF5" stroke="#334454" stroke-width="18" stroke-linejoin="round"/>
+    <path d="M274 124 L350 200 H286 Q274 200 274 188 Z" fill="#EFE2C0" stroke="#334454" stroke-width="14" stroke-linejoin="round"/>
+    <!-- markdown: heading + two text lines -->
+    <line x1="148" y1="180" x2="226" y2="180" stroke="#EF5549" stroke-width="22" stroke-linecap="round"/>
+    <g stroke="#334454" stroke-opacity="0.3" stroke-width="16" stroke-linecap="round">
+      <line x1="148" y1="232" x2="306" y2="232"/>
+      <line x1="148" y1="268" x2="262" y2="268"/>
+    </g>
+    <!-- runnable code cell -->
+    <rect x="144" y="308" width="172" height="114" rx="20" fill="#334A5E"/>
+    <path d="M172 342 L204 365 L172 388 Z" fill="#FFFDF5" stroke="#FFFDF5" stroke-width="6" stroke-linejoin="round"/>
+    <g stroke="#65B9E6" stroke-width="12" stroke-linecap="round">
+      <line x1="226" y1="346" x2="290" y2="346"/>
+      <line x1="226" y1="384" x2="266" y2="384"/>
+    </g>
+    <!-- leaf sprouting from the dog-ear -->
+    <path d="M306 178 C306 106 344 72 418 66 C412 140 378 176 306 178 Z" fill="#4E8B6F" stroke="#334454" stroke-width="14" stroke-linejoin="round"/>
+    <line x1="318" y1="166" x2="390" y2="94" stroke="#FFFDF5" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>

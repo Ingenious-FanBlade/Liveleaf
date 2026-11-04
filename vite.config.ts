@@ -12,6 +12,18 @@ export default defineConfig(async () => ({
   //
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (/\/node_modules\/(?:@codemirror|@lezer)\//.test(id)) {
+            const grammar = /\/node_modules\/(?:@codemirror\/lang-|@lezer\/(?:python|javascript|json|markdown|html|css)\/)/.test(id);
+            return grammar ? "code-languages" : "code-editor";
+          }
+        },
+      },
+    },
+  },
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,

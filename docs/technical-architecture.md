@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Stream Learn is a local-first desktop application built with Vue and Tauri.
+Liveleaf is a local-first desktop application built with Vue and Tauri.
 
 The application has five main layers:
 
@@ -55,7 +55,7 @@ document model, but it should not be the only place where parsing logic lives.
 
 ## 2.3 Markdown Parser
 
-The parser converts `.md` or `.sl.md` source text into the document model.
+The parser converts `.md` or `.ll.md` source text into the document model.
 
 Recommended direction:
 
@@ -63,7 +63,7 @@ Recommended direction:
 - Use `remark-parse` for Markdown.
 - Use `remark-gfm` for GitHub Flavored Markdown.
 - Use `remark-directive` or a similar container syntax parser for extensions.
-- Convert parsed Markdown AST into a Stream Learn document AST.
+- Convert parsed Markdown AST into a Liveleaf document AST.
 
 The parser must preserve enough source information to map rendered blocks back
 to their source ranges when possible.
@@ -151,20 +151,20 @@ mixed into generic file commands.
 
 Recommended source file extensions:
 
-- `.sl.md` for Stream Learn course files.
+- `.ll.md` for Liveleaf course files.
 - `.md` for standard Markdown files opened in compatibility mode.
 
 Recommended folder layout:
 
 ```text
 course/
-  lesson-01.sl.md
+  lesson-01.ll.md
   assets/
     intro.mp4
     graph.png
   tests/
     two_sum_test.py
-  .streamlearn/
+  .liveleaf/
     outputs.json
     student-edits.json
     settings.json
@@ -207,9 +207,9 @@ MVP persistence can use sidecar JSON files before introducing a database.
 
 Suggested sidecar files:
 
-- `.streamlearn/outputs.json`
-- `.streamlearn/student-edits.json`
-- `.streamlearn/session.json`
+- `.liveleaf/outputs.json`
+- `.liveleaf/student-edits.json`
+- `.liveleaf/session.json`
 
 This keeps the course source file clean and avoids writing outputs into the
 Markdown file unless the user explicitly exports them.

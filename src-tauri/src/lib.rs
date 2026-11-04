@@ -1,15 +1,11 @@
+pub mod cli;
+mod course;
+mod validation;
 mod markdown;
 mod project_package;
 mod runtime;
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RunCodeCellRequest {
-    source: String,
-    cell_id: String,
-    file_path: Option<String>,
-    working_directory: Option<String>,
-}
+use course::{run_code_cell as run_code_cell_authoritative, RunCodeCellRequest};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -40,40 +36,6 @@ async fn run_code_cell(
         .map_err(|error| format!("Code cell runtime task failed: {error}"))?
 }
 
-fn run_code_cell_authoritative(
-    request: RunCodeCellRequest,
-) -> Result<runtime::python::PythonRunResult, String> {
-    let document = markdown::parse_course(&request.source)?;
-    let cell = document
-        .code_cells
-        .into_iter()
-        .find(|candidate| candidate.id == request.cell_id)
-        .ok_or_else(|| format!("Code cell '{}' was not found.", request.cell_id))?;
-
-    if cell.language.to_lowercase() != "python" {
-        return Ok(runtime::python::error_result(
-            cell.id,
-            "UnsupportedRuntime",
-            format!("No Python runtime is configured for '{}'.", cell.language),
-        ));
-    }
-
-    let mode = match cell.kind {
-        markdown::CodeCellKind::Run => "run",
-        markdown::CodeCellKind::Exercise => "exercise",
-    };
-
-    Ok(runtime::python::run(runtime::python::PythonRunRequest {
-        id: cell.id,
-        code: cell.code,
-        file_path: request.file_path,
-        working_directory: request.working_directory,
-        timeout_ms: cell.timeout.unwrap_or(5_000),
-        session_id: cell.session,
-        mode: mode.to_string(),
-    }))
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -94,6 +56,45 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authoritative_visualization_adds_global_document_line() {
+        let source = "# First\n\n---\n\n# Second\n\n```python run id=lines visualize=array watch=arr\n\narr=[1]\n```";
+        let result = run_code_cell_authoritative(RunCodeCellRequest {
+            source: source.into(),
+            cell_id: "lines".into(),
+            file_path: None,
+            working_directory: None,
+        })
+        .unwrap();
+        if result.error.as_ref().map(|e| e.name.as_str()) == Some("PythonNotFound") {
+            return;
+        }
+        assert_eq!(result.status, runtime::python::RunStatus::Success);
+        let trace: serde_json::Value = serde_json::from_str(
+            &result
+                .outputs
+                .iter()
+                .find(|o| o.mime.as_deref() == Some(runtime::visualization::MIME))
+                .unwrap()
+                .value,
+        )
+        .unwrap();
+        assert_eq!(trace["capture"]["status"], "complete");
+        for frame in trace["frames"].as_array().unwrap() {
+            assert_eq!(
+                frame["position"]["documentLine"].as_u64().unwrap(),
+                7 + frame["position"]["cellLine"].as_u64().unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn configuration_diagnostics_prevent_user_code_execution() {
+        let result = run_code_cell_authoritative(RunCodeCellRequest { source: "```python run id=bad visualize=array watch=arr watch=other\nprint('must not run')\n```".into(), cell_id: "bad".into(), file_path: None, working_directory: None }).unwrap();
+        assert_eq!(result.error.unwrap().name, "VisualizationConfigError");
+        assert!(result.stdout.is_empty());
+    }
 
     #[test]
     fn run_code_cell_reparses_source_and_executes_matching_cell() {

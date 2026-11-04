@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::runtime::visualization::{self, VisualizationConfig, VisualizationDiagnostic};
 use ::markdown::mdast::Node;
 use ::markdown::{to_mdast, ParseOptions};
 
@@ -34,6 +35,10 @@ pub struct CodeCell {
     pub session: Option<String>,
     pub source_range: Option<SourceRange>,
     pub slide_index: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visualization: Option<VisualizationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visualization_diagnostics: Option<Vec<VisualizationDiagnostic>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -58,9 +63,11 @@ struct SlideSource {
 }
 
 #[derive(Debug, Default)]
-struct ParsedParams {
-    flags: HashSet<String>,
-    attrs: HashMap<String, String>,
+pub(crate) struct ParsedParams {
+    pub flags: HashSet<String>,
+    pub attrs: HashMap<String, String>,
+    pub duplicates: HashSet<String>,
+    pub unterminated_quote: bool,
 }
 
 pub fn parse_course(source: &str) -> Result<CourseDocument, String> {
@@ -141,6 +148,12 @@ fn collect_code_cells(
                 start_line: line_offset + position.start.line.saturating_sub(1),
                 end_line: line_offset + position.end.line.saturating_sub(1),
             });
+            let (visualization, diagnostics) = visualization::parse_config(
+                &language,
+                &params.attrs,
+                &params.duplicates,
+                &params.flags,
+            );
 
             code_cells.push(CodeCell {
                 id,
@@ -151,6 +164,12 @@ fn collect_code_cells(
                 session: params.attrs.get("session").cloned(),
                 source_range,
                 slide_index,
+                visualization,
+                visualization_diagnostics: if diagnostics.is_empty() {
+                    None
+                } else {
+                    Some(diagnostics)
+                },
             });
         }
     }
@@ -202,6 +221,7 @@ fn split_slides(source: &str) -> Vec<SlideSource> {
     let mut current_lines = Vec::new();
     let mut in_fence = false;
     let mut fence_marker = None;
+    let mut fence_length = 0;
     let mut in_frontmatter = lines.first().is_some_and(|line| line.trim() == "---");
 
     for (line_index, line) in lines.iter().enumerate() {
@@ -217,11 +237,12 @@ fn split_slides(source: &str) -> Vec<SlideSource> {
             continue;
         }
 
-        if let Some(marker) = fence_marker_for_line(line) {
+        if let Some((marker, length, closing)) = fence_marker_for_line(line) {
             if !in_fence {
                 in_fence = true;
                 fence_marker = Some(marker);
-            } else if fence_marker == Some(marker) {
+                fence_length = length;
+            } else if fence_marker == Some(marker) && length >= fence_length && closing {
                 in_fence = false;
                 fence_marker = None;
             }
@@ -250,26 +271,24 @@ fn split_slides(source: &str) -> Vec<SlideSource> {
 }
 
 fn build_slide(index: usize, lines: &[(usize, String)]) -> SlideSource {
-    let first_line = lines
-        .first()
-        .map(|(line_number, _)| *line_number)
-        .unwrap_or(1);
-    let joined = lines
+    let first = lines
+        .iter()
+        .position(|(_, line)| !line.trim().is_empty())
+        .unwrap_or(0);
+    let end = lines
+        .iter()
+        .rposition(|(_, line)| !line.trim().is_empty())
+        .map(|i| i + 1)
+        .unwrap_or(first);
+    let joined = lines[first..end]
         .iter()
         .map(|(_, line)| line.as_str())
         .collect::<Vec<_>>()
         .join("\n");
-    let trimmed_start = joined.trim_start();
-    let leading_trimmed = joined.len() - trimmed_start.len();
-    let leading_newlines = joined[..leading_trimmed]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count();
-
     SlideSource {
         index,
-        source: joined.trim().to_string(),
-        start_line: first_line + leading_newlines,
+        source: joined,
+        start_line: lines.get(first).map(|(line, _)| *line).unwrap_or(1),
     }
 }
 
@@ -277,7 +296,23 @@ fn normalize_line_endings(source: &str) -> String {
     source.replace("\r\n", "\n").replace('\r', "\n")
 }
 
-fn parse_params(params: &str) -> ParsedParams {
+/// Source lines which must not be interpreted as teaching/media directives.
+pub(crate) fn code_lines(node: &Node) -> HashSet<usize> {
+    let mut lines = HashSet::new();
+    if matches!(node, Node::Code(_) | Node::InlineCode(_)) {
+        if let Some(position) = node.position() {
+            lines.extend(position.start.line..=position.end.line);
+        }
+    }
+    if let Some(children) = node.children() {
+        for child in children {
+            lines.extend(code_lines(child));
+        }
+    }
+    lines
+}
+
+pub(crate) fn parse_params(params: &str) -> ParsedParams {
     let mut parsed = ParsedParams::default();
     let mut chars = params.chars().peekable();
 
@@ -297,9 +332,35 @@ fn parse_params(params: &str) -> ParsedParams {
 
         if chars.peek() == Some(&'=') {
             chars.next();
-            let value = read_param_value(&mut chars);
+            let (mut value, complete) = read_param_value(&mut chars);
+            parsed.unterminated_quote |= !complete;
+            if !complete
+                && [
+                    "visualize",
+                    "watch",
+                    "pointers",
+                    "scope",
+                    "value",
+                    "children",
+                    "node_states",
+                    "edge_states",
+                    "tables",
+                    "distances",
+                    "visited",
+                    "predecessors",
+                ]
+                .contains(&key.as_str())
+            {
+                value.insert(0, '"');
+            }
+            if parsed.attrs.contains_key(&key) || parsed.flags.contains(&key) {
+                parsed.duplicates.insert(key.clone());
+            }
             parsed.attrs.insert(key, value);
         } else {
+            if parsed.attrs.contains_key(&key) || parsed.flags.contains(&key) {
+                parsed.duplicates.insert(key.clone());
+            }
             parsed.flags.insert(key);
         }
     }
@@ -307,7 +368,7 @@ fn parse_params(params: &str) -> ParsedParams {
     parsed
 }
 
-fn read_param_value<I>(chars: &mut std::iter::Peekable<I>) -> String
+fn read_param_value<I>(chars: &mut std::iter::Peekable<I>) -> (String, bool)
 where
     I: Iterator<Item = char>,
 {
@@ -316,14 +377,15 @@ where
             let quote = chars.next().expect("peeked quote should exist");
             let value = read_until(chars, |ch| ch == quote);
 
-            if chars.peek() == Some(&quote) {
+            let complete = chars.peek() == Some(&quote);
+            if complete {
                 chars.next();
             }
 
-            value
+            (value, complete)
         }
-        Some(_) => read_until(chars, |ch| ch.is_whitespace()),
-        None => String::new(),
+        Some(_) => (read_until(chars, |ch| ch.is_whitespace()), true),
+        None => (String::new(), true),
     }
 }
 
@@ -361,7 +423,7 @@ fn is_slide_separator(line: &str) -> bool {
     leading_whitespace <= 3 && line.trim() == "---"
 }
 
-fn fence_marker_for_line(line: &str) -> Option<char> {
+fn fence_marker_for_line(line: &str) -> Option<(char, usize, bool)> {
     let leading_whitespace = line.len() - line.trim_start().len();
 
     if leading_whitespace > 3 {
@@ -370,13 +432,15 @@ fn fence_marker_for_line(line: &str) -> Option<char> {
 
     let trimmed = line.trim_start();
 
-    if trimmed.starts_with("```") {
-        Some('`')
+    let marker = if trimmed.starts_with("```") {
+        '`'
     } else if trimmed.starts_with("~~~") {
-        Some('~')
+        '~'
     } else {
-        None
-    }
+        return None;
+    };
+    let length = trimmed.chars().take_while(|ch| *ch == marker).count();
+    Some((marker, length, trimmed[length..].trim().is_empty()))
 }
 
 fn has_meaningful_content(lines: &[(usize, String)]) -> bool {
@@ -400,6 +464,48 @@ fn is_fallback_title(title: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_visualization_fixtures_match_frontend() {
+        let fixtures: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../../tests/fixtures/visualization.json")).unwrap();
+        for (i, fixture) in fixtures.iter().enumerate() {
+            let document = parse_course(fixture["source"].as_str().unwrap()).unwrap();
+            if let Some(slides) = fixture["slides"].as_u64() {
+                assert_eq!(document.slides.len(), slides as usize);
+            }
+            if fixture["static"] == true {
+                assert!(document.code_cells.is_empty());
+                continue;
+            }
+            let cell = &document.code_cells[0];
+            if let Some(config) = fixture.get("config") {
+                assert_eq!(
+                    serde_json::to_value(&cell.visualization).unwrap(),
+                    *config,
+                    "fixture {i}"
+                );
+            }
+            if let Some(errors) = fixture.get("errors") {
+                let attributes: Vec<_> = cell
+                    .visualization_diagnostics
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|d| d.attribute.as_deref().unwrap())
+                    .collect();
+                assert_eq!(serde_json::json!(attributes), *errors, "fixture {i}");
+                assert!(cell.visualization.is_none());
+            }
+            if let Some(line) = fixture["line"].as_u64() {
+                assert_eq!(
+                    cell.source_range.as_ref().unwrap().start_line,
+                    line as usize,
+                    "fixture {i}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn parses_gfm_documents() {

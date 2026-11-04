@@ -1,0 +1,20 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  class="sl-code-cell__language-icon"
+  viewBox="0 0 24 24"
+  width="28"
+  height="28"
+  role="img"
+  aria-label="Python"
+>
+  <title>Python</title>
+  <g stroke="#334454" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#4EA5D9" d="M9 2h6a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-5a3 3 0 0 0-3 3v3H5a3 3 0 0 1-3-3v-4a2 2 0 0 1 2-2h3V4a2 2 0 0 1 2-2Z"/>
+    <path fill="#F3B642" d="M15 22H9a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h5a3 3 0 0 0 3-3V7h2a3 3 0 0 1 3 3v4a2 2 0 0 1-2 2h-3v4a2 2 0 0 1-2 2Z"/>
+    <path d="M7 8h4m2 8h4" fill="none"/>
+  </g>
+  <g fill="#334454">
+    <circle cx="10" cy="5" r=".85"/>
+    <circle cx="14" cy="19" r=".85"/>
+  </g>
+</svg>

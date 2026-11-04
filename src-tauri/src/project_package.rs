@@ -10,9 +10,11 @@ use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-const FORMAT_NAME: &str = "stream-learn-project";
+const FORMAT_NAME: &str = "liveleaf-project";
+/// Packages saved before the rename to Liveleaf are still accepted on open.
+const LEGACY_FORMAT_NAMES: &[&str] = &["stream-learn-project"];
 const SCHEMA_VERSION: u32 = 1;
-const DOCUMENT_PATH: &str = "document.sl.md";
+const DOCUMENT_PATH: &str = "document.ll.md";
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,6 +121,48 @@ struct BundledAssetFile {
     package_path: String,
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ResourceInfo {
+    pub source: String,
+    pub kind: String,
+    pub status: String,
+    pub package_path: Option<String>,
+    pub mime: Option<String>,
+    pub bytes: Option<u64>,
+    pub sha256: Option<String>,
+}
+
+/// Read-only preflight using exactly the same resource policy as package creation.
+pub(crate) fn inspect_resources(
+    source: &str,
+    base_dir: &Path,
+) -> Result<(Vec<ResourceInfo>, Vec<String>), String> {
+    let base_dir = canonicalize_existing_dir(base_dir)?;
+    let (assets, _, warnings) =
+        build_asset_manifest(&base_dir, collect_resource_references(source))?;
+    Ok((
+        assets
+            .into_iter()
+            .map(|asset| ResourceInfo {
+                source: asset.source,
+                kind: kind_label(asset.kind).into(),
+                status: if asset.status == PackageAssetStatus::Bundled {
+                    "available"
+                } else {
+                    status_label(asset.status)
+                }
+                .into(),
+                package_path: asset.package_path,
+                mime: asset.mime,
+                bytes: asset.bytes,
+                sha256: asset.sha256,
+            })
+            .collect(),
+        warnings,
+    ))
+}
+
 #[tauri::command]
 pub async fn save_project_package(
     request: SaveProjectPackageRequest,
@@ -137,7 +181,7 @@ pub async fn open_project_package(
         .map_err(|error| format!("Project package open task failed: {error}"))?
 }
 
-fn save_project_package_blocking(
+pub(crate) fn save_project_package_blocking(
     request: SaveProjectPackageRequest,
 ) -> Result<SaveProjectPackageResponse, String> {
     let output_path = PathBuf::from(request.output_path.trim());
@@ -336,7 +380,7 @@ fn validate_manifest(manifest: &ProjectManifest) -> Result<(), String> {
         ));
     }
 
-    if manifest.format != FORMAT_NAME {
+    if manifest.format != FORMAT_NAME && !LEGACY_FORMAT_NAMES.contains(&manifest.format.as_str()) {
         return Err(format!(
             "Unsupported project package format: {}",
             manifest.format
@@ -376,7 +420,7 @@ fn create_open_package_directory(package_path: &Path) -> Result<PathBuf, String>
         .map_or(0, |duration| duration.as_nanos());
 
     directory.push(format!(
-        "stream-learn-open-{package_name}-{}-{timestamp}",
+        "liveleaf-open-{package_name}-{}-{timestamp}",
         std::process::id()
     ));
     fs::create_dir_all(&directory)
@@ -508,33 +552,75 @@ fn status_label(status: PackageAssetStatus) -> &'static str {
 
 fn collect_resource_references(source: &str) -> Vec<ResourceReference> {
     let mut references = Vec::new();
+    let mut code_lines = HashSet::new();
 
     if let Ok(ast) = to_mdast(source, &ParseOptions::gfm()) {
-        collect_markdown_image_references(&ast, &mut references);
+        let mut definitions = HashMap::new();
+        collect_image_definitions(&ast, &mut definitions);
+        collect_markdown_image_references(&ast, &definitions, &mut references);
+        code_lines = crate::markdown::code_lines(&ast);
     }
 
-    collect_media_directive_references(source, &mut references);
+    collect_media_directive_references(source, &code_lines, &mut references);
 
     references
 }
 
-fn collect_markdown_image_references(node: &Node, references: &mut Vec<ResourceReference>) {
-    if let Node::Image(image) = node {
+fn reference_key(identifier: &str) -> String {
+    identifier
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+        .to_uppercase()
+}
+
+fn collect_image_definitions(node: &Node, definitions: &mut HashMap<String, String>) {
+    if let Node::Definition(definition) = node {
+        definitions
+            .entry(reference_key(&definition.identifier))
+            .or_insert_with(|| definition.url.clone());
+    }
+    if let Some(children) = node.children() {
+        for child in children {
+            collect_image_definitions(child, definitions);
+        }
+    }
+}
+
+fn collect_markdown_image_references(
+    node: &Node,
+    definitions: &HashMap<String, String>,
+    references: &mut Vec<ResourceReference>,
+) {
+    let source = match node {
+        Node::Image(image) => Some(image.url.clone()),
+        Node::ImageReference(image) => definitions.get(&reference_key(&image.identifier)).cloned(),
+        _ => None,
+    };
+    if let Some(source) = source {
         references.push(ResourceReference {
             kind: PackageAssetKind::Image,
-            source: image.url.clone(),
+            source,
         });
     }
 
     if let Some(children) = node.children() {
         for child in children {
-            collect_markdown_image_references(child, references);
+            collect_markdown_image_references(child, definitions, references);
         }
     }
 }
 
-fn collect_media_directive_references(source: &str, references: &mut Vec<ResourceReference>) {
-    for line in source.lines() {
+fn collect_media_directive_references(
+    source: &str,
+    code_lines: &HashSet<usize>,
+    references: &mut Vec<ResourceReference>,
+) {
+    for (index, line) in source.lines().enumerate() {
+        if code_lines.contains(&(index + 1)) {
+            continue;
+        }
         if let Some(media) = parse_media_directive(line) {
             references.push(ResourceReference {
                 kind: media.kind,
@@ -990,7 +1076,7 @@ mod tests {
     #[test]
     fn saves_markdown_only_package() {
         let temp_dir = temp_test_dir("markdown-only");
-        let output_path = temp_dir.join("lesson.slpkg");
+        let output_path = temp_dir.join("lesson.llpkg");
         let source = "# Lesson\n\nHello package.\n";
         let response = save_project_package_blocking(SaveProjectPackageRequest {
             source: source.to_string(),
@@ -1025,11 +1111,11 @@ mod tests {
         fs::write(asset_dir.join("intro.mp3"), b"audio bytes").expect("audio");
 
         let source = "# Media\n\n![Diagram](./assets/diagram.png)\n\n::video[Demo](./assets/demo.mp4){controls poster=\"./assets/poster.jpg\"}\n\n::audio[Intro](./assets/intro.mp3){controls}\n";
-        let output_path = temp_dir.join("lesson.slpkg");
+        let output_path = temp_dir.join("lesson.llpkg");
         let response = save_project_package_blocking(SaveProjectPackageRequest {
             source: source.to_string(),
             output_path: output_path.to_string_lossy().to_string(),
-            source_file_path: Some(temp_dir.join("lesson.sl.md").to_string_lossy().to_string()),
+            source_file_path: Some(temp_dir.join("lesson.ll.md").to_string_lossy().to_string()),
         })
         .expect("package should save");
 
@@ -1079,7 +1165,7 @@ mod tests {
     #[test]
     fn missing_and_external_assets_do_not_block_save() {
         let temp_dir = temp_test_dir("missing-external");
-        let output_path = temp_dir.join("lesson.slpkg");
+        let output_path = temp_dir.join("lesson.llpkg");
         let source = "# Assets\n\n![Missing](./assets/missing.png)\n\n![Remote](https://example.com/remote.png)\n";
         let response = save_project_package_blocking(SaveProjectPackageRequest {
             source: source.to_string(),
@@ -1109,7 +1195,7 @@ mod tests {
     #[test]
     fn parent_directory_assets_are_blocked() {
         let temp_dir = temp_test_dir("blocked");
-        let output_path = temp_dir.join("lesson.slpkg");
+        let output_path = temp_dir.join("lesson.llpkg");
         let source = "# Blocked\n\n![Secret](../secret.png)\n";
         let response = save_project_package_blocking(SaveProjectPackageRequest {
             source: source.to_string(),
@@ -1135,7 +1221,7 @@ mod tests {
         fs::create_dir_all(&asset_dir).expect("asset dir");
         fs::write(asset_dir.join("diagram.png"), b"image bytes").expect("image");
 
-        let output_path = temp_dir.join("lesson.slpkg");
+        let output_path = temp_dir.join("lesson.llpkg");
         let source =
             "# Duplicate\n\n![One](./assets/diagram.png)\n\n![Two](./assets/diagram.png)\n";
         let response = save_project_package_blocking(SaveProjectPackageRequest {
@@ -1167,12 +1253,12 @@ mod tests {
         fs::create_dir_all(&asset_dir).expect("asset dir");
         fs::write(asset_dir.join("diagram.png"), b"image bytes").expect("image");
 
-        let output_path = temp_dir.join("lesson.slpkg");
+        let output_path = temp_dir.join("lesson.llpkg");
         let source = "# Open Me\n\n![Diagram](./assets/diagram.png)\n";
         save_project_package_blocking(SaveProjectPackageRequest {
             source: source.to_string(),
             output_path: output_path.to_string_lossy().to_string(),
-            source_file_path: Some(temp_dir.join("lesson.sl.md").to_string_lossy().to_string()),
+            source_file_path: Some(temp_dir.join("lesson.ll.md").to_string_lossy().to_string()),
         })
         .expect("package should save");
 
@@ -1204,7 +1290,7 @@ mod tests {
     #[test]
     fn opening_package_reports_missing_bundled_entries() {
         let temp_dir = temp_test_dir("open-missing-entry");
-        let output_path = temp_dir.join("broken.slpkg");
+        let output_path = temp_dir.join("broken.llpkg");
         let manifest = ProjectManifest {
             schema_version: SCHEMA_VERSION,
             format: FORMAT_NAME.to_string(),
@@ -1241,7 +1327,7 @@ mod tests {
     #[test]
     fn opening_package_blocks_unsafe_asset_entries() {
         let temp_dir = temp_test_dir("open-blocked-entry");
-        let output_path = temp_dir.join("blocked.slpkg");
+        let output_path = temp_dir.join("blocked.llpkg");
         let manifest = ProjectManifest {
             schema_version: SCHEMA_VERSION,
             format: FORMAT_NAME.to_string(),
@@ -1275,6 +1361,37 @@ mod tests {
         let _ = fs::remove_dir_all(response.working_directory);
     }
 
+    #[test]
+    fn opening_package_accepts_pre_rename_stream_learn_packages() {
+        let temp_dir = temp_test_dir("open-legacy");
+        let output_path = temp_dir.join("legacy.slpkg");
+        let manifest = ProjectManifest {
+            schema_version: SCHEMA_VERSION,
+            format: "stream-learn-project".to_string(),
+            document_path: "document.sl.md".to_string(),
+            title: "Legacy".to_string(),
+            assets: Vec::new(),
+            warnings: Vec::new(),
+        };
+
+        write_test_package(
+            &output_path,
+            "# Not the manifest document\n",
+            &manifest,
+            &[("document.sl.md", b"# Legacy\n".as_slice())],
+        );
+
+        let response = open_project_package_blocking(OpenProjectPackageRequest {
+            package_path: output_path.to_string_lossy().to_string(),
+        })
+        .expect("legacy package should open");
+
+        assert_eq!(response.source, "# Legacy\n");
+
+        let _ = fs::remove_dir_all(temp_dir);
+        let _ = fs::remove_dir_all(response.working_directory);
+    }
+
     fn temp_test_dir(label: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
         let timestamp = SystemTime::now()
@@ -1283,7 +1400,7 @@ mod tests {
             .as_nanos();
 
         path.push(format!(
-            "stream-learn-project-package-{label}-{}-{timestamp}",
+            "liveleaf-project-package-{label}-{}-{timestamp}",
             std::process::id()
         ));
         fs::create_dir_all(&path).expect("temp test dir");

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Liveleaf 活页 app icon, simplified for 16-32px, transparent background.
+       Drawn on a 32-unit grid with even coordinates so strokes land on whole pixels at 16 and 32px.
+       Page is 18x24 (portrait), matching the large icon's proportions. -->
+  <path d="M5 4 H16 L22 10 V27 Q22 28 21 28 H5 Q4 28 4 27 V5 Q4 4 5 4 Z" fill="#334454" transform="translate(2 2)"/>
+  <path d="M5 4 H16 L22 10 V27 Q22 28 21 28 H5 Q4 28 4 27 V5 Q4 4 5 4 Z" fill="#FFFDF5" stroke="#334454" stroke-width="2" stroke-linejoin="round"/>
+  <line x1="8" y1="9" x2="11" y2="9" stroke="#EF5549" stroke-width="2" stroke-linecap="round"/>
+  <line x1="8" y1="13" x2="16" y2="13" stroke="#334454" stroke-opacity="0.3" stroke-width="2" stroke-linecap="round"/>
+  <rect x="8" y="16" width="10" height="8" rx="1.5" fill="#334A5E"/>
+  <path d="M11 18 L14 20 L11 22 Z" fill="#FFFDF5"/>
+  <path d="M18 10 C18 5 22 2 29 2 C28 8 25 10 18 10 Z" fill="#4E8B6F" stroke="#334454" stroke-width="1.75" stroke-linejoin="round"/>
+  <line x1="20" y1="8" x2="26" y2="4" stroke="#FFFDF5" stroke-width="1" stroke-linecap="round"/>
+</svg>

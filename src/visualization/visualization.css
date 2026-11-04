@@ -1,0 +1,12 @@
+.viz-state-view {
+  --viz-reference: #235877;
+  --viz-reference-other: #b34b2d;
+  --viz-visited: #367052;
+  --viz-visited-fill: #d7eadb;
+  --viz-changed: #936100;
+  --viz-changed-fill: #f9e5b0;
+  --viz-edge: #647581;
+}
+.viz-state-view .viz-details { margin: 12px 0; font-size: .88rem; line-height: 1.6; overflow-wrap: anywhere; }
+.viz-state-view .viz-details summary { cursor: pointer; }
+.viz-state-view .viz-details p { margin: 6px 0; }

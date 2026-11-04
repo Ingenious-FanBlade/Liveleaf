@@ -12,15 +12,22 @@ import type {
 } from "./project/projectPackageClient";
 import { PythonRuntimeClient } from "./runtime/PythonRuntimeClient";
 import type { RunResult } from "./runtime/runResult";
+import { readVisualization } from "./runtime/visualization";
+import type { VisualizationTrace } from "./runtime/visualization";
+import TracePlayer from "./visualization/TracePlayer.vue";
+import CodeEditor from "./code/CodeEditor.vue";
+import WindowFrame from "./window/WindowFrame.vue";
+import visualizationExamples from "../docs/examples/python-visualization.ll.md?raw";
+import dijkstraExamples from "../docs/examples/dijkstra.ll.md?raw";
 
 const starterSource = `# Python Basics
 
 ::: note
-Stream Learn files stay readable Markdown first, then add teaching blocks where plain Markdown runs out of room.
+Liveleaf files stay readable Markdown first, then add teaching blocks where plain Markdown runs out of room.
 :::
 
-\`\`\`python run id="hello-stream" timeout=5000
-name = "Stream Learn"
+\`\`\`python run id="hello-liveleaf" timeout=5000
+name = "Liveleaf"
 print(f"Hello, {name}")
 \`\`\`
 
@@ -56,13 +63,14 @@ Think about what state needs to be remembered between two lines of code.
 ::: solution collapsed
 Use a dictionary to store previously seen values.
 :::
-`;
+` + "\n---\n\n" + visualizationExamples + "\n---\n\n" + dijkstraExamples;
 
 const source = ref(starterSource);
 const isNavigatorOpen = ref(true);
 const activeSlideId = ref("slide-1");
 const previewStageRef = ref<HTMLElement | null>(null);
 const presentationRootRef = ref<HTMLElement | null>(null);
+const windowFrameRef = ref<InstanceType<typeof WindowFrame> | null>(null);
 const presentationScrollRef = ref<HTMLElement | null>(null);
 const isPresentationMode = ref(false);
 const slideRefs = new Map<string, HTMLElement>();
@@ -105,6 +113,11 @@ interface CellRunState {
   status: CellRunStatus;
   result?: RunResult;
   message?: string;
+  sourceSnapshot?: string;
+  documentLine?: number;
+  stale?: boolean;
+  trace?: VisualizationTrace;
+  visualizationError?: string;
 }
 
 interface ProjectSaveStatus {
@@ -114,6 +127,7 @@ interface ProjectSaveStatus {
 }
 
 const runStates = ref<Record<string, CellRunState>>({});
+const requestSequences = new Map<string, number>();
 const isOpeningProject = ref(false);
 const isSavingProject = ref(false);
 const projectSaveStatus = ref<ProjectSaveStatus>({ kind: "idle" });
@@ -129,7 +143,7 @@ watch(
 );
 
 watch(source, () => {
-  runStates.value = {};
+  for (const state of Object.values(runStates.value)) state.stale = true;
 
   if (projectSaveStatus.value.kind === "success") {
     projectSaveStatus.value = { kind: "idle" };
@@ -186,9 +200,10 @@ async function enterPresentation() {
   resetPresentationScroll("auto");
   presentationRootRef.value?.focus({ preventScroll: true });
 
-  if (!document.fullscreenElement && presentationRootRef.value?.requestFullscreen) {
+  const frame = windowFrameRef.value?.element;
+  if (!document.fullscreenElement && frame?.requestFullscreen) {
     try {
-      await presentationRootRef.value.requestFullscreen();
+      await frame.requestFullscreen();
     } catch {
       // Keep the in-app presentation layer when system fullscreen is unavailable.
     }
@@ -198,7 +213,7 @@ async function enterPresentation() {
 async function exitPresentation() {
   const fullscreenElement = document.fullscreenElement;
 
-  if (fullscreenElement && fullscreenElement === presentationRootRef.value) {
+  if (fullscreenElement && fullscreenElement === windowFrameRef.value?.element) {
     try {
       await document.exitFullscreen();
     } catch {
@@ -357,12 +372,13 @@ async function handleOpenProject() {
 
   try {
     const selectedPath = await open({
-      title: "Open Stream Learn Project",
+      title: "Open Liveleaf Project",
       multiple: false,
       filters: [
         {
-          name: "Stream Learn Project",
-          extensions: ["slpkg"],
+          name: "Liveleaf Project",
+          // .slpkg: packages saved before the rename to Liveleaf.
+          extensions: ["llpkg", "slpkg"],
         },
       ],
     });
@@ -405,12 +421,12 @@ async function handleSaveProject() {
 
   try {
     const selectedPath = await save({
-      title: "Save Stream Learn Project",
-      defaultPath: `${sanitizeProjectFileName(course.value.title)}.slpkg`,
+      title: "Save Liveleaf Project",
+      defaultPath: `${sanitizeProjectFileName(course.value.title)}.llpkg`,
       filters: [
         {
-          name: "Stream Learn Project",
-          extensions: ["slpkg"],
+          name: "Liveleaf Project",
+          extensions: ["llpkg"],
         },
       ],
     });
@@ -505,12 +521,6 @@ function handleCourseInteractionClick(event: MouseEvent, container: HTMLElement 
 }
 
 async function runCodeCell(cell: CodeCell) {
-  const existingState = runStates.value[cell.id];
-
-  if (existingState?.status === "pending") {
-    return;
-  }
-
   if (cell.language.toLowerCase() !== "python") {
     setRunState(cell.id, {
       status: "error",
@@ -519,21 +529,32 @@ async function runCodeCell(cell: CodeCell) {
     return;
   }
 
-  setRunState(cell.id, { status: "pending" });
+  const sequence = (requestSequences.get(cell.id) ?? 0) + 1;
+  requestSequences.set(cell.id, sequence);
+  const sourceAtRun = source.value;
+  const snapshot = { sourceSnapshot: cell.code, documentLine: cell.sourceRange?.startLine };
+  setRunState(cell.id, { status: "pending", ...snapshot });
 
   try {
     const result = await pythonRuntime.runCodeCell({
-      source: source.value,
+      source: sourceAtRun,
       cellId: cell.id,
       filePath: currentSourceFilePath.value,
       workingDirectory: currentWorkingDirectory.value,
     });
 
+    if (requestSequences.get(cell.id) !== sequence) return;
+    const visualization = readVisualization(result.outputs, cell.id);
     setRunState(cell.id, {
       status: result.status,
       result,
+      ...snapshot,
+      stale: source.value !== sourceAtRun,
+      trace: visualization.trace,
+      visualizationError: visualization.error,
     });
   } catch (error) {
+    if (requestSequences.get(cell.id) !== sequence) return;
     setRunState(cell.id, {
       status: "error",
       message: errorMessage(error),
@@ -601,7 +622,7 @@ function sanitizeProjectFileName(title: string) {
 }
 
 function withProjectPackageExtension(path: string) {
-  return path.toLowerCase().endsWith(".slpkg") ? path : `${path}.slpkg`;
+  return path.toLowerCase().endsWith(".llpkg") ? path : `${path}.llpkg`;
 }
 
 function saveProjectSummary(result: SaveProjectPackageResponse) {
@@ -704,11 +725,12 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
 </script>
 
 <template>
+  <WindowFrame ref="windowFrameRef" :title="course.title">
   <main
     v-if="!isPresentationMode"
     class="course-shell paper-bg"
     :class="{ 'navigator-collapsed': !isNavigatorOpen }"
-    aria-label="Stream Learn markdown workspace"
+    aria-label="Liveleaf markdown workspace"
   >
     <header class="top-rule">
       <div class="navigator-head">
@@ -732,7 +754,6 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
       </div>
 
       <div class="lesson-title">
-        <span>Stream Learn</span>
         <strong>{{ course.title }}</strong>
       </div>
 
@@ -795,7 +816,7 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
         </p>
 
         <div class="lesson-stats" aria-label="Document stats">
-          <span v-if="currentPackagePath" title="Loaded package">.slpkg</span>
+          <span v-if="currentPackagePath" title="Loaded package">.llpkg</span>
           <span>{{ course.codeCells.length }} code</span>
           <span>{{ source.length }} chars</span>
         </div>
@@ -841,14 +862,11 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
       <section class="editor-pane" aria-labelledby="editor-title">
         <div class="pane-title">
           <span id="editor-title">Markdown Source</span>
-          <strong>.sl.md</strong>
+          <strong>.ll.md</strong>
         </div>
 
-        <textarea
+        <CodeEditor
           v-model="source"
-          class="source-editor"
-          spellcheck="false"
-          aria-label="Markdown source editor"
         />
       </section>
 
@@ -946,6 +964,8 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
                   <span class="runtime-output__duration">
                     {{ formatDuration(runStateFor(cell.id)?.result) }}
                   </span>
+                  <p v-if="runStateFor(cell.id)?.visualizationError" class="runtime-output__message runtime-output__message--error">{{ runStateFor(cell.id)?.visualizationError }}</p>
+                  <TracePlayer v-if="runStateFor(cell.id)?.trace" :trace="runStateFor(cell.id)!.trace!" :source="runStateFor(cell.id)?.sourceSnapshot ?? ''" :document-line="runStateFor(cell.id)?.documentLine" :run-status="runStateFor(cell.id)?.status ?? 'error'" :stale="runStateFor(cell.id)?.stale" />
                 </template>
               </section>
             </Teleport>
@@ -965,7 +985,7 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
   >
     <header class="presentation-toolbar" aria-label="演示控制栏">
       <div class="presentation-title">
-        <span>Stream Learn</span>
+        <span>Liveleaf</span>
         <strong>{{ activeSlide?.title ?? course.title }}</strong>
       </div>
 
@@ -1099,12 +1119,15 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
               <span class="runtime-output__duration">
                 {{ formatDuration(runStateFor(cell.id)?.result) }}
               </span>
+              <p v-if="runStateFor(cell.id)?.visualizationError" class="runtime-output__message runtime-output__message--error">{{ runStateFor(cell.id)?.visualizationError }}</p>
+              <TracePlayer v-if="runStateFor(cell.id)?.trace" :trace="runStateFor(cell.id)!.trace!" :source="runStateFor(cell.id)?.sourceSnapshot ?? ''" :document-line="runStateFor(cell.id)?.documentLine" :run-status="runStateFor(cell.id)?.status ?? 'error'" :stale="runStateFor(cell.id)?.stale" />
             </template>
           </section>
         </Teleport>
       </article>
     </div>
   </section>
+  </WindowFrame>
 </template>
 
 <style>
@@ -1124,7 +1147,7 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
   --scrollbar-thumb: rgba(51, 68, 84, 0.34);
   --scrollbar-thumb-hover: rgba(51, 68, 84, 0.52);
   color: var(--ink-dark);
-  background: var(--paper);
+  background: transparent;
   font-family: Nunito, Inter, "Segoe UI", system-ui, sans-serif;
   font-size: 16px;
   font-synthesis: none;
@@ -1171,9 +1194,15 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
 
 body {
   min-width: 320px;
-  min-height: 100vh;
+  height: 100dvh;
   margin: 0;
-  background: var(--paper);
+  overflow: hidden;
+  background: transparent;
+}
+
+#app {
+  height: 100%;
+  background: transparent;
 }
 
 button,
@@ -1184,8 +1213,8 @@ textarea {
 
 <style scoped>
 .course-shell {
-  height: 100vh;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
@@ -1269,8 +1298,7 @@ textarea {
 .save-project-button:focus-visible,
 .presentation-control:focus-visible,
 .slide-thumbnail:focus-visible,
-.slide-dot:focus-visible,
-.source-editor:focus-visible {
+.slide-dot:focus-visible {
   outline: 4px solid var(--blue);
   outline-offset: 4px;
 }
@@ -1300,10 +1328,6 @@ textarea {
   gap: 12px;
   color: var(--muted);
   font-weight: 900;
-}
-
-.lesson-title span {
-  color: var(--green);
 }
 
 .lesson-title strong {
@@ -1571,24 +1595,6 @@ textarea {
   padding: 4px 9px;
 }
 
-.source-editor {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  resize: none;
-  padding: 20px;
-  border: 4px solid var(--ink);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: 12px 12px 0 rgba(47, 65, 82, 0.16);
-  color: var(--ink-dark);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.94rem;
-  line-height: 1.62;
-  outline: none;
-  tab-size: 2;
-}
-
 .preview-stage {
   min-height: 0;
   overflow-y: auto;
@@ -1828,18 +1834,33 @@ textarea {
   font-weight: 900;
 }
 
-.markdown-preview :deep(.sl-code-cell__meta) {
+.markdown-preview :deep(.sl-code-cell__identity) {
+  min-width: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
+  align-items: center;
+  gap: 8px;
 }
 
-.markdown-preview :deep(.sl-code-cell__header span) {
-  padding: 2px 7px;
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  background: var(--paper-soft);
-  color: var(--ink-dark);
+.markdown-preview :deep(.sl-code-cell__identity strong) {
+  overflow-wrap: anywhere;
+}
+
+.markdown-preview :deep(.sl-code-cell__language-icon) {
+  display: block;
+  flex-shrink: 0;
+}
+
+.markdown-preview :deep(.sl-code-cell__actions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.markdown-preview :deep(.sl-code-cell__timeout) {
+  white-space: nowrap;
+  font-weight: 600;
 }
 
 .markdown-preview :deep(.sl-code-cell__run) {
@@ -1853,6 +1874,14 @@ textarea {
   font-family: inherit;
   font-size: 0.82rem;
   font-weight: 900;
+}
+
+.markdown-preview :deep(.sl-code-cell__diagnostic) {
+  margin: 8px 16px;
+  padding: 10px;
+  border-left: 4px solid var(--yellow);
+  color: #fffdf5;
+  font-size: .85rem;
 }
 
 .markdown-preview :deep(.sl-code-cell__run:hover) {
@@ -2017,11 +2046,8 @@ textarea {
 }
 
 .presentation-shell {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
@@ -2205,10 +2231,21 @@ textarea {
 }
 
 @media (max-width: 1120px) {
+  .top-rule {
+    grid-template-columns: 170px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .lesson-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
   .workspace-layout,
   .navigator-collapsed .workspace-layout {
     grid-template-columns: 150px minmax(0, 1fr);
     grid-template-rows: minmax(360px, 0.88fr) minmax(420px, 1.12fr);
+    overflow-y: auto;
   }
 
   .slide-navigator {

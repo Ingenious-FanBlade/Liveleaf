@@ -1,21 +1,27 @@
 import MarkdownIt from "markdown-it";
 import markdownItContainer from "markdown-it-container";
 import type { CodeCell, CourseDocument, CourseSlide } from "./documentModel";
+import { parseVisualization } from "../runtime/visualization";
+import { highlightCode } from "../code/syntaxHighlight";
+import { renderLanguageIcon } from "../code/languageIcon";
 
 interface ParsedParams {
   flags: Set<string>;
   attrs: Record<string, string>;
+  duplicates: string[];
 }
 
 interface CodeInfo {
   language: string;
   flags: Set<string>;
   attrs: Record<string, string>;
+  duplicates: string[];
 }
 
 interface SlideSource {
   index: number;
   source: string;
+  startLine: number;
 }
 
 export interface ParseCourseOptions {
@@ -66,7 +72,7 @@ export function parseCourse(source: string, options: ParseCourseOptions = {}): C
 
 function renderSlide(slideSource: SlideSource, options: ParseCourseOptions): CourseSlide {
   const codeCells: CodeCell[] = [];
-  const markdown = createMarkdownRenderer(slideSource.index, codeCells, options);
+  const markdown = createMarkdownRenderer(slideSource.index, slideSource.startLine, codeCells, options);
   const html = markdown.render(slideSource.source);
 
   return {
@@ -81,6 +87,7 @@ function renderSlide(slideSource: SlideSource, options: ParseCourseOptions): Cou
 
 function createMarkdownRenderer(
   slideIndex: number,
+  slideStartLine: number,
   codeCells: CodeCell[],
   rendererOptions: ParseCourseOptions,
 ) {
@@ -89,6 +96,7 @@ function createMarkdownRenderer(
     html: false,
     linkify: true,
     typographer: false,
+    highlight: (code, language) => highlightCode(code, language),
   });
 
   for (const name of directiveNames) {
@@ -134,7 +142,7 @@ function createMarkdownRenderer(
         : null;
 
     if (!kind) {
-      return defaultFence(tokens, index, options, env, self);
+      return defaultFence(tokens, index, options, env, self).replace("<pre>", '<pre class="sl-code-theme">');
     }
 
     const id = info.attrs.id ?? `slide-${slideIndex + 1}-cell-${codeCells.length + 1}`;
@@ -142,11 +150,12 @@ function createMarkdownRenderer(
     const language = info.language || "text";
     const sourceRange = token.map
       ? {
-          startLine: token.map[0] + 1,
-          endLine: token.map[1],
+          startLine: slideStartLine + (env?.sourceLineOffset ?? 0) + token.map[0],
+          endLine: slideStartLine + (env?.sourceLineOffset ?? 0) + token.map[1] - 1,
         }
       : undefined;
 
+    const visualization = parseVisualization(language, info.attrs, info.duplicates, info.flags);
     codeCells.push({
       id,
       language,
@@ -156,6 +165,7 @@ function createMarkdownRenderer(
       session: info.attrs.session,
       sourceRange,
       slideIndex,
+      ...visualization,
     });
 
     return renderCodeCell(markdown, {
@@ -163,8 +173,8 @@ function createMarkdownRenderer(
       id,
       kind,
       language,
-      session: info.attrs.session,
       timeout,
+      diagnostics: visualization.visualizationDiagnostics?.map(d => `${d.attribute}: ${d.message}`),
     });
   };
 
@@ -178,7 +188,15 @@ function splitSlides(source: string): SlideSource[] {
   let currentLines: string[] = [];
   let inFence = false;
   let fenceMarker = "";
+  let fenceLength = 0;
   let inFrontmatter = lines[0]?.trim() === "---";
+  let startLine = 1;
+  const pushSlide = () => {
+    const first = currentLines.findIndex(l => l.trim().length > 0);
+    let end = currentLines.length;
+    while (end > Math.max(first, 0) && !currentLines[end - 1].trim()) end--;
+    slides.push({ index: slides.length, source: currentLines.slice(Math.max(first, 0), end).join("\n"), startLine: startLine + Math.max(first, 0) });
+  };
 
   lines.forEach((line, lineIndex) => {
     if (inFrontmatter) {
@@ -191,37 +209,33 @@ function splitSlides(source: string): SlideSource[] {
       return;
     }
 
-    const fence = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    const fence = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
       const marker = fence[1][0];
 
       if (!inFence) {
         inFence = true;
         fenceMarker = marker;
-      } else if (marker === fenceMarker) {
+        fenceLength = fence[1].length;
+      } else if (marker === fenceMarker && fence[1].length >= fenceLength && !fence[2].trim()) {
         inFence = false;
         fenceMarker = "";
       }
     }
 
     if (!inFence && isSlideSeparator(line) && hasMeaningfulContent(currentLines)) {
-      slides.push({
-        index: slides.length,
-        source: currentLines.join("\n").trim(),
-      });
+      pushSlide();
       currentLines = [];
+      startLine = lineIndex + 2;
       return;
     }
 
     currentLines.push(line);
   });
 
-  slides.push({
-    index: slides.length,
-    source: currentLines.join("\n").trim(),
-  });
+  pushSlide();
 
-  return slides.length > 0 ? slides : [{ index: 0, source: "" }];
+  return slides;
 }
 
 function renderContainerDirective(
@@ -281,7 +295,7 @@ function parseContainerTokenInfo(token: ContainerToken) {
 function columnsDirectivePlugin(markdown: MarkdownIt) {
   markdown.block.ruler.before(
     "paragraph",
-    "stream_learn_columns",
+    "liveleaf_columns",
     (state: any, startLine: number, endLine: number, silent: boolean) => {
       const openingLine = getLineText(state, startLine).trim();
 
@@ -293,7 +307,7 @@ function columnsDirectivePlugin(markdown: MarkdownIt) {
         return true;
       }
 
-      const columns: Array<{ source: string; width?: string }> = [];
+      const columns: Array<{ source: string; width?: string; startLine: number }> = [];
       let line = startLine + 1;
 
       while (line < endLine) {
@@ -309,7 +323,7 @@ function columnsDirectivePlugin(markdown: MarkdownIt) {
             return false;
           }
 
-          const token = state.push("stream_learn_columns", "", 0);
+          const token = state.push("liveleaf_columns", "", 0);
           token.block = true;
           token.map = [startLine, line + 1];
           token.meta = { columns };
@@ -330,7 +344,8 @@ function columnsDirectivePlugin(markdown: MarkdownIt) {
         }
 
         columns.push({
-          source: state.getLines(line + 1, columnEndLine, 0, false).trim(),
+          source: state.getLines(line + 1, columnEndLine, 0, false),
+          startLine: line + 1,
           width: safeCssWidth(params.attrs.width),
         });
 
@@ -341,16 +356,16 @@ function columnsDirectivePlugin(markdown: MarkdownIt) {
     },
   );
 
-  markdown.renderer.rules.stream_learn_columns = (tokens: any[], index: number) => {
+  markdown.renderer.rules.liveleaf_columns = (tokens: any[], index: number, _options, env) => {
     const meta = tokens[index].meta as {
-      columns: Array<{ source: string; width?: string }>;
+      columns: Array<{ source: string; width?: string; startLine: number }>;
     };
     const renderedColumns = meta.columns
       .map((column) => {
         const style = column.width
           ? ` style="--column-width: ${markdown.utils.escapeHtml(column.width)}"`
           : "";
-        return `<section class="sl-column"${style}>\n${markdown.render(column.source)}</section>`;
+        return `<section class="sl-column"${style}>\n${markdown.render(column.source, { ...env, sourceLineOffset: (env?.sourceLineOffset ?? 0) + column.startLine })}</section>`;
       })
       .join("\n");
 
@@ -361,7 +376,7 @@ function columnsDirectivePlugin(markdown: MarkdownIt) {
 function mediaDirectivePlugin(markdown: MarkdownIt, rendererOptions: ParseCourseOptions) {
   markdown.block.ruler.before(
     "paragraph",
-    "stream_learn_media",
+    "liveleaf_media",
     (state: any, startLine: number, _endLine: number, silent: boolean) => {
       const position = state.bMarks[startLine] + state.tShift[startLine];
       const max = state.eMarks[startLine];
@@ -378,7 +393,7 @@ function mediaDirectivePlugin(markdown: MarkdownIt, rendererOptions: ParseCourse
         return true;
       }
 
-      const token = state.push("stream_learn_media", "", 0);
+      const token = state.push("liveleaf_media", "", 0);
       token.block = true;
       token.map = [startLine, startLine + 1];
       token.meta = {
@@ -393,7 +408,7 @@ function mediaDirectivePlugin(markdown: MarkdownIt, rendererOptions: ParseCourse
     },
   );
 
-  markdown.renderer.rules.stream_learn_media = (tokens: any[], index: number) => {
+  markdown.renderer.rules.liveleaf_media = (tokens: any[], index: number) => {
     const meta = tokens[index].meta as {
       kind: "audio" | "video";
       label: string;
@@ -433,7 +448,7 @@ function findColumnEndLine(state: any, startLine: number, endLine: number) {
   for (let line = startLine; line < endLine; line += 1) {
     const lineText = getLineText(state, line);
     const trimmedLine = lineText.trim();
-    const fenceMatch = lineText.match(/^\s{0,3}(`{3,}|~{3,})/);
+    const fenceMatch = lineText.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
 
     if (fenceMatch) {
       const marker = fenceMatch[1][0];
@@ -442,7 +457,7 @@ function findColumnEndLine(state: any, startLine: number, endLine: number) {
       if (!fenceMarker) {
         fenceMarker = marker;
         fenceLength = markerLength;
-      } else if (marker === fenceMarker && markerLength >= fenceLength) {
+      } else if (marker === fenceMarker && markerLength >= fenceLength && !fenceMatch[2].trim()) {
         fenceMarker = "";
         fenceLength = 0;
       }
@@ -479,29 +494,25 @@ function renderCodeCell(
     id: string;
     kind: "run" | "exercise";
     language: string;
-    session?: string;
     timeout?: number;
+    diagnostics?: string[];
   },
 ) {
-  const escapedCode = markdown.utils.escapeHtml(cell.code);
+  const highlightedCode = highlightCode(cell.code, cell.language);
   const escapedId = markdown.utils.escapeHtml(cell.id);
   const escapedLanguage = markdown.utils.escapeHtml(cell.language);
-  const metaItems = [
-    cell.kind,
-    cell.language,
-    cell.session ? `session:${cell.session}` : null,
-    cell.timeout ? `${cell.timeout}ms` : null,
-  ].filter(Boolean);
-  const metaHtml = metaItems
-    .map((item) => `<span>${markdown.utils.escapeHtml(String(item))}</span>`)
-    .join("");
+  const languageIcon = renderLanguageIcon(cell.language);
+  const timeoutHtml = cell.timeout
+    ? `<span class="sl-code-cell__timeout">${cell.timeout}ms</span>`
+    : "";
   const runButton =
-    cell.language.toLowerCase() === "python"
+    cell.language.toLowerCase() === "python" && !cell.diagnostics?.length
       ? `<button class="sl-code-cell__run" type="button" data-code-cell-run="${escapedId}" aria-label="Run ${escapedId}">Run</button>`
       : "";
   const outputSlotId = markdown.utils.escapeHtml(encodeURIComponent(cell.id));
+  const diagnostics = cell.diagnostics?.map(d => `<p class="sl-code-cell__diagnostic">${markdown.utils.escapeHtml(d)}</p>`).join("") ?? "";
 
-  return `<section class="sl-code-cell sl-code-cell--${cell.kind}" data-code-cell-id="${escapedId}"><div class="sl-code-cell__header"><strong>${escapedId}</strong><div class="sl-code-cell__meta">${metaHtml}</div>${runButton}</div><pre><code class="language-${escapedLanguage}">${escapedCode}</code></pre><div class="sl-code-cell__output-slot" data-code-cell-output="${outputSlotId}"></div></section>\n`;
+  return `<section class="sl-code-cell sl-code-cell--${cell.kind}" data-code-cell-id="${escapedId}"><div class="sl-code-cell__header"><div class="sl-code-cell__identity">${languageIcon}<strong>${escapedId}</strong></div><div class="sl-code-cell__actions">${timeoutHtml}${runButton}</div></div><pre class="sl-code-theme"><code class="language-${escapedLanguage}">${highlightedCode}</code></pre>${diagnostics}<div class="sl-code-cell__output-slot" data-code-cell-output="${outputSlotId}"></div></section>\n`;
 }
 
 function parseCodeInfo(info: string): CodeInfo {
@@ -513,6 +524,7 @@ function parseCodeInfo(info: string): CodeInfo {
     language,
     flags: params.flags,
     attrs: params.attrs,
+    duplicates: params.duplicates,
   };
 }
 
@@ -527,13 +539,32 @@ function parseDirectiveInfo(info: string) {
 
 function parseParams(params: string): ParsedParams {
   const flags = new Set<string>();
-  const attrs: Record<string, string> = {};
-  const paramPattern = /([^\s"'=]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\s]+)))?/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = paramPattern.exec(params)) !== null) {
-    const key = match[1];
-    const value = match[2] ?? match[3] ?? match[4];
+  const attrs: Record<string, string> = Object.create(null);
+  const duplicates: string[] = [];
+  let cursor = 0;
+  while (cursor < params.length) {
+    while (/\s/.test(params[cursor] ?? "") && cursor < params.length) cursor++;
+    const start = cursor;
+    while (cursor < params.length && !/[\s=]/.test(params[cursor])) cursor++;
+    const key = params.slice(start, cursor);
+    if (!key) { cursor++; continue; }
+    let value: string | undefined;
+    if (params[cursor] === "=") {
+      cursor++;
+      const quote = params[cursor];
+      if (quote === '"' || quote === "'") {
+        const begin = ++cursor;
+        while (cursor < params.length && params[cursor] !== quote) cursor++;
+        value = params.slice(begin, cursor);
+        if (cursor < params.length) cursor++;
+        else if (["visualize", "watch", "pointers", "scope", "value", "children", "node_states", "edge_states", "tables", "distances", "visited", "predecessors"].includes(key)) value = quote + value;
+      } else {
+        const begin = cursor;
+        while (cursor < params.length && !/\s/.test(params[cursor])) cursor++;
+        value = params.slice(begin, cursor);
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(attrs, key) || flags.has(key)) duplicates.push(key);
 
     if (value === undefined) {
       flags.add(key);
@@ -542,7 +573,7 @@ function parseParams(params: string): ParsedParams {
     }
   }
 
-  return { flags, attrs };
+  return { flags, attrs, duplicates };
 }
 
 function parseInteger(value: string | undefined) {

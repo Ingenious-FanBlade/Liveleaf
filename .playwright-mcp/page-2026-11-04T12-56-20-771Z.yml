@@ -1,0 +1,348 @@
+- generic [ref=e3]:
+  - banner "窗口标题栏" [ref=e4]:
+    - generic "拖动窗口，双击最大化或还原" [ref=e5]:
+      - generic: Liveleaf
+      - generic: Python Basics
+    - generic "窗口操作" [ref=e6]:
+      - button "最小化窗口" [disabled] [ref=e7]
+      - button "最大化窗口" [disabled] [ref=e9]
+      - button "关闭窗口" [disabled] [ref=e12]
+  - main "Liveleaf markdown workspace" [ref=e16]:
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - button "收起页面浏览栏" [ref=e19] [cursor=pointer]
+        - generic [ref=e22]:
+          - generic [ref=e23]: Slides
+          - strong [ref=e24]: "8"
+      - strong [ref=e26]: Python Basics
+      - generic [ref=e27]:
+        - button "Present" [ref=e28] [cursor=pointer]
+        - button "Open Project" [ref=e36] [cursor=pointer]
+        - button "Save Project" [ref=e41] [cursor=pointer]
+        - generic "Document stats" [ref=e46]:
+          - generic [ref=e47]: 7 code
+          - generic [ref=e48]: 6489 chars
+    - generic [ref=e49]:
+      - complementary "页面浏览栏" [ref=e50]:
+        - generic [ref=e51]:
+          - button "1 Python Basics 1 code" [ref=e52] [cursor=pointer]:
+            - generic [ref=e53]: "1"
+            - generic [ref=e54]: Python Basics
+            - generic [ref=e55]: 1 code
+          - button "2 Variables 1 code" [ref=e56] [cursor=pointer]:
+            - generic [ref=e57]: "2"
+            - generic [ref=e58]: Variables
+            - generic [ref=e59]: 1 code
+          - button "3 Media And Reveals" [ref=e60] [cursor=pointer]:
+            - generic [ref=e61]: "3"
+            - generic [ref=e62]: Media And Reveals
+          - button "4 Python Hook · 算法可视化 1 code" [ref=e63] [cursor=pointer]:
+            - generic [ref=e64]: "4"
+            - generic [ref=e65]: Python Hook · 算法可视化
+            - generic [ref=e66]: 1 code
+          - button "5 二叉树的先序遍历 1 code" [ref=e67] [cursor=pointer]:
+            - generic [ref=e68]: "5"
+            - generic [ref=e69]: 二叉树的先序遍历
+            - generic [ref=e70]: 1 code
+          - button "6 有向图 · 节点、箭头与权重 1 code" [ref=e71] [cursor=pointer]:
+            - generic [ref=e72]: "6"
+            - generic [ref=e73]: 有向图 · 节点、箭头与权重
+            - generic [ref=e74]: 1 code
+          - button "7 Dijkstra · 从 A 出发的最短路径 1 code" [ref=e75] [cursor=pointer]:
+            - generic [ref=e76]: "7"
+            - generic [ref=e77]: Dijkstra · 从 A 出发的最短路径
+            - generic [ref=e78]: 1 code
+          - button "8 Dynamic table · 独立观察数组 1 code" [ref=e79] [cursor=pointer]:
+            - generic [ref=e80]: "8"
+            - generic [ref=e81]: Dynamic table · 独立观察数组
+            - generic [ref=e82]: 1 code
+      - region "Markdown Source" [ref=e83]:
+        - generic [ref=e84]:
+          - generic [ref=e85]: Markdown Source
+          - strong [ref=e86]: .ll.md
+        - generic [ref=e89]:
+          - generic [ref=e91]:
+            - generic [ref=e92]: "1"
+            - generic [ref=e93]: "2"
+            - generic [ref=e94]: "3"
+            - generic [ref=e95]: "4"
+            - generic [ref=e96]: "5"
+            - generic [ref=e97]: "6"
+            - generic [ref=e98]: "7"
+            - generic [ref=e99]: "8"
+            - generic [ref=e100]: "9"
+            - generic [ref=e101]: "10"
+            - generic [ref=e102]: "11"
+            - generic [ref=e103]: "12"
+            - generic [ref=e104]: "13"
+            - generic [ref=e105]: "14"
+            - generic [ref=e106]: "15"
+            - generic [ref=e107]: "16"
+            - generic [ref=e108]: "17"
+            - generic [ref=e109]: "18"
+            - generic [ref=e110]: "19"
+            - generic [ref=e111]: "20"
+            - generic [ref=e112]: "21"
+            - generic [ref=e113]: "22"
+            - generic [ref=e114]: "23"
+            - generic [ref=e115]: "24"
+            - generic [ref=e116]: "25"
+            - generic [ref=e117]: "26"
+            - generic [ref=e118]: "27"
+            - generic [ref=e119]: "28"
+            - generic [ref=e120]: "29"
+            - generic [ref=e121]: "30"
+            - generic [ref=e122]: "31"
+            - generic [ref=e123]: "32"
+            - generic [ref=e124]: "33"
+            - generic [ref=e125]: "34"
+            - generic [ref=e126]: "35"
+            - generic [ref=e127]: "36"
+            - generic [ref=e128]: "37"
+            - generic [ref=e129]: "38"
+            - generic [ref=e130]: "39"
+            - generic [ref=e131]: "40"
+            - generic [ref=e132]: "41"
+            - generic [ref=e133]: "42"
+          - textbox "Markdown source editor" [ref=e134]:
+            - generic [ref=e135]: "# Python Basics"
+            - generic [ref=e137]: "::: note"
+            - generic [ref=e138]: Liveleaf files stay readable Markdown first, then add teaching blocks where plain Markdown runs out of room.
+            - generic [ref=e139]: ":::"
+            - generic [ref=e141]: "```python run id=\"hello-liveleaf\" timeout=5000"
+            - generic [ref=e142]: name = "Liveleaf"
+            - generic [ref=e143]: "print(f\"Hello, {name}\")"
+            - generic [ref=e144]: "```"
+            - generic [ref=e146]: "---"
+            - generic [ref=e148]: "# Variables"
+            - generic [ref=e150]: "::: columns"
+            - generic [ref=e151]: "::: column width=45%"
+            - generic [ref=e152]: "## Concept"
+            - generic [ref=e154]: A variable stores a value so the program can use it later.
+            - generic [ref=e155]: ":::"
+            - generic [ref=e157]: "::: column width=55%"
+            - generic [ref=e158]: "```python exercise id=\"change-name\""
+            - generic [ref=e159]: name = "Ada"
+            - generic [ref=e160]: print(name)
+            - generic [ref=e161]: "```"
+            - generic [ref=e162]: ":::"
+            - generic [ref=e163]: ":::"
+            - generic [ref=e165]: "---"
+            - generic [ref=e167]: "# Media And Reveals"
+            - generic [ref=e169]: "::video[Sorting demo](./assets/sort.mp4){controls start=12 width=80%}"
+            - generic [ref=e171]: "::: hint"
+            - generic [ref=e172]: Think about what state needs to be remembered between two lines of code.
+            - generic [ref=e173]: ":::"
+            - generic [ref=e175]: "::: solution collapsed"
+            - generic [ref=e176]: Use a dictionary to store previously seen values.
+      - region "Live Preview" [ref=e178]:
+        - generic [ref=e179]:
+          - generic [ref=e180]: Live Preview
+          - strong [ref=e181]: 8 slides
+        - generic "实时预览" [ref=e182]:
+          - 'article "Python Basics Note Liveleaf files stay readable Markdown first, then add teaching blocks where plain Markdown runs out of room. Python hello-liveleaf 5000ms Run hello-liveleaf name = \"Liveleaf\" print(f\"Hello, {name}\")" [ref=e183]':
+            - generic [ref=e184]:
+              - generic [ref=e185]: Slide 1
+              - strong [ref=e186]: 1 code
+            - generic [ref=e187]:
+              - heading "Python Basics" [level=1] [ref=e188]
+              - complementary [ref=e189]:
+                - generic [ref=e190] [cursor=pointer]: Note
+                - paragraph [ref=e191]: Liveleaf files stay readable Markdown first, then add teaching blocks where plain Markdown runs out of room.
+              - generic [ref=e192]:
+                - generic [ref=e193]:
+                  - generic [ref=e194]:
+                    - img "Python" [ref=e195]
+                    - strong [ref=e203]: hello-liveleaf
+                  - generic [ref=e204]:
+                    - generic [ref=e205]: 5000ms
+                    - button "Run hello-liveleaf" [ref=e206] [cursor=pointer]: Run
+                - code [ref=e208]: "name = \"Liveleaf\" print(f\"Hello, {name}\")"
+          - article [ref=e209]:
+            - generic [ref=e210]:
+              - generic [ref=e211]: Slide 2
+              - strong [ref=e212]: 1 code
+            - generic [ref=e213]:
+              - heading "Variables" [level=1] [ref=e214]
+              - generic [ref=e215]:
+                - generic [ref=e216]:
+                  - heading "Concept" [level=2] [ref=e217]
+                  - paragraph [ref=e218]: A variable stores a value so the program can use it later.
+                - generic [ref=e220]:
+                  - generic [ref=e221]:
+                    - generic [ref=e222]:
+                      - img "Python" [ref=e223]
+                      - strong [ref=e231]: change-name
+                    - button "Run change-name" [ref=e233] [cursor=pointer]: Run
+                  - code [ref=e235]: name = "Ada" print(name)
+          - article "Media And Reveals Sorting demo Hint Solution" [ref=e236]:
+            - generic [ref=e237]: Slide 3
+            - generic [ref=e239]:
+              - heading "Media And Reveals" [level=1] [ref=e240]
+              - figure "Sorting demo" [ref=e241]
+              - group [ref=e244]:
+                - generic "Hint" [ref=e245] [cursor=pointer]
+              - group [ref=e246]:
+                - generic "Solution" [ref=e247] [cursor=pointer]
+          - article [ref=e248]:
+            - generic [ref=e249]:
+              - generic [ref=e250]: Slide 4
+              - strong [ref=e251]: 1 code
+            - generic [ref=e252]:
+              - heading "Python Hook · 算法可视化" [level=1] [ref=e253]
+              - paragraph [ref=e254]: 点击 Run 执行普通 Python 代码，执行结束后可以播放、暂停、前后单步或拖动进度条。黄色表示相邻兼容状态中的变化，蓝色边框表示首个观察变量的位置，橙色边框表示其他观察变量的位置。图内只保留数值、节点名和数组下标；悬浮或展开“观察详情”可查看变量信息。播放器中的高亮行表示“即将执行”，代码已在回放前执行完毕。
+              - generic [ref=e255]:
+                - generic [ref=e256]:
+                  - generic [ref=e257]:
+                    - img "Python" [ref=e258]
+                    - strong [ref=e266]: climb-stairs
+                  - button "Run climb-stairs" [ref=e268] [cursor=pointer]: Run
+                - code [ref=e270]: "n = 5 dp = [0] * (n + 1) dp[0] = dp[1] = 1 for i in range(2, n + 1): dp[i] = dp[i - 1] + dp[i - 2] print(dp[n])"
+              - paragraph [ref=e271]:
+                - text: 最终数组为
+                - code [ref=e272]: "[1, 1, 2, 3, 5, 8]"
+                - text: ，输出
+                - code [ref=e273]: "8"
+                - text: 。
+          - 'article "二叉树的先序遍历 先序遍历按照 根 → 左子树 → 右子树 访问节点。下面的 node 指针跟随最内层 preorder 调用；递归返回时，指针恢复到外层调用中的节点。 A / \\ B C / \\ \\ D E F Python binary-tree-preorder 5000ms Run binary-tree-preorder class Node: def __init__(self, val, left=None, right=None): self.val = val self.left = left self.right = right root = Node(\"A\", Node(\"B\", Node(\"D\"), Node(\"E\")), Node(\"C\", None, Node(\"F\"))) visited = [] def preorder(node): if node is None: return visited.append(node.val) preorder(node.left) preorder(node.right) preorder(root) print(\" → \".join(visited)) 预期输出：A → B → D → E → C → F。 回放中可观察蓝色边框从 A 进入 B、D，返回后进入 E，再进入 C、F。F 保持在 C 的右孩子位置。空子树调用时没有节点被蓝框标记，“观察详情”中显示“空引用”。node 仅代表当前引用，访问顺序由算法中的 visited 和最终输出说明。 Tip 将进度条拖到递归返回附近，观察作用域切换提示和蓝色边框的位置。每次调用都有独立身份；回放不会再次执行 Python。 本地可视化支持 CPython 3.10 及以上的单线程同步代码；不追踪导入库内部、额外线程或 C 扩展的内部步骤。生成器与异步控制流会在执行前拒绝。记录只在当前应用内存中保存。" [ref=e274]':
+            - generic [ref=e275]:
+              - generic [ref=e276]: Slide 5
+              - strong [ref=e277]: 1 code
+            - generic [ref=e278]:
+              - heading "二叉树的先序遍历" [level=1] [ref=e279]
+              - paragraph [ref=e280]:
+                - text: 先序遍历按照
+                - strong [ref=e281]: 根 → 左子树 → 右子树
+                - text: 访问节点。下面的
+                - code [ref=e282]: node
+                - text: 指针跟随最内层
+                - code [ref=e283]: preorder
+                - text: 调用；递归返回时，指针恢复到外层调用中的节点。
+              - code [ref=e285]: A / \ B C / \ \ D E F
+              - generic [ref=e286]:
+                - generic [ref=e287]:
+                  - generic [ref=e288]:
+                    - img "Python" [ref=e289]
+                    - strong [ref=e297]: binary-tree-preorder
+                  - generic [ref=e298]:
+                    - generic [ref=e299]: 5000ms
+                    - button "Run binary-tree-preorder" [ref=e300] [cursor=pointer]: Run
+                - code [ref=e302]: "class Node: def __init__(self, val, left=None, right=None): self.val = val self.left = left self.right = right root = Node(\"A\", Node(\"B\", Node(\"D\"), Node(\"E\")), Node(\"C\", None, Node(\"F\"))) visited = [] def preorder(node): if node is None: return visited.append(node.val) preorder(node.left) preorder(node.right) preorder(root) print(\" → \".join(visited))"
+              - paragraph [ref=e303]:
+                - text: 预期输出：
+                - code [ref=e304]: A → B → D → E → C → F
+                - text: 。
+              - paragraph [ref=e305]:
+                - text: 回放中可观察蓝色边框从 A 进入 B、D，返回后进入 E，再进入 C、F。F 保持在 C 的右孩子位置。空子树调用时没有节点被蓝框标记，“观察详情”中显示“空引用”。
+                - code [ref=e306]: node
+                - text: 仅代表当前引用，访问顺序由算法中的
+                - code [ref=e307]: visited
+                - text: 和最终输出说明。
+              - complementary [ref=e308]:
+                - generic [ref=e309] [cursor=pointer]: Tip
+                - paragraph [ref=e310]: 将进度条拖到递归返回附近，观察作用域切换提示和蓝色边框的位置。每次调用都有独立身份；回放不会再次执行 Python。
+              - paragraph [ref=e311]: 本地可视化支持 CPython 3.10 及以上的单线程同步代码；不追踪导入库内部、额外线程或 C 扩展的内部步骤。生成器与异步控制流会在执行前拒绝。记录只在当前应用内存中保存。
+          - article [ref=e312]:
+            - generic [ref=e313]:
+              - generic [ref=e314]: Slide 6
+              - strong [ref=e315]: 1 code
+            - generic [ref=e316]:
+              - heading "有向图 · 节点、箭头与权重" [level=1] [ref=e317]
+              - paragraph [ref=e318]:
+                - text: 普通邻接表就能直接可视化。
+                - code [ref=e319]: "{\"A\": {\"B\": 4}}"
+                - text: 表示一条
+                - strong [ref=e320]: A → B、权重为 4
+                - text: 的边。箭头只表示声明的方向，不会自动补出反向边。
+              - generic [ref=e321]:
+                - generic [ref=e322]:
+                  - generic [ref=e323]:
+                    - img "Python" [ref=e324]
+                    - strong [ref=e332]: directed-graph
+                  - button "Run directed-graph" [ref=e334] [cursor=pointer]: Run
+                - code [ref=e336]: "graph = { \"A\": {\"B\": 4, \"C\": 1}, \"B\": {\"A\": 2, \"C\": 2}, \"C\": {\"C\": 0}, \"D\": {}, } node_states = {\"A\": {\"label\": \"起点\", \"active\": True}, \"D\": {\"label\": \"孤立节点\"}} edge_states = {(\"A\", \"B\"): {\"capacity\": 10, \"flow\": 0, \"enabled\": True}} current = \"A\" neighbor = \"B\" edge_states[(\"A\", \"B\")][\"flow\"] = 3 node_states[\"A\"][\"active\"] = False current = \"B\" neighbor = \"A\""
+              - paragraph [ref=e337]:
+                - text: 回放支持环、自环、双向连边和孤立节点。A → B 与 B → A 分别显示自己的箭头和权重，D 没有任何连边。蓝色边框标记
+                - code [ref=e338]: current
+                - text: ，橙色边框标记
+                - code [ref=e339]: neighbor
+                - text: ；二者之间存在的有向边加粗为蓝色。节点状态和边状态可以包含任意多个具名标量成员；悬浮提示和“观察详情”展示全部成员，黄色表示变化。无权图也可以写成
+                - code [ref=e340]: "{\"A\": [\"B\", \"C\"], \"B\": [], \"C\": []}"
+                - text: 。
+          - article [ref=e341]:
+            - generic [ref=e342]:
+              - generic [ref=e343]: Slide 7
+              - strong [ref=e344]: 1 code
+            - generic [ref=e345]:
+              - heading "Dijkstra · 从 A 出发的最短路径" [level=1] [ref=e346]
+              - paragraph [ref=e347]:
+                - text: 每轮从最小堆中取出尚未确定的最近节点，再尝试通过它缩短邻居的距离。这一步称为
+                - strong [ref=e348]: 松弛
+                - text: 。Dijkstra 要求所有边权非负；下面的实现会明确拒绝负权、NaN 和无穷边权。
+              - paragraph [ref=e349]:
+                - text: 观察声明中，
+                - code [ref=e350]: current,neighbor
+                - text: 指向正在处理的节点与邻居；
+                - code [ref=e351]: node_states
+                - text: 保存每个节点的距离、已确定标记和前驱。这些只是作者定义的状态成员。独立的 dynamic table 通过
+                - code [ref=e352]: tables="table_rows"
+                - text: 绑定记录数组；数组中的记录与节点状态引用同一个字典，修改后两处同步更新。算法无需导入绘图库。
+              - generic [ref=e353]:
+                - generic [ref=e354]:
+                  - generic [ref=e355]:
+                    - img "Python" [ref=e356]
+                    - strong [ref=e364]: dijkstra-shortest-path
+                  - generic [ref=e365]:
+                    - generic [ref=e366]: 5000ms
+                    - button "Run dijkstra-shortest-path" [ref=e367] [cursor=pointer]: Run
+                - code [ref=e369]: "from heapq import heappop, heappush from itertools import count from math import isfinite def dijkstra(graph, start): for adjacent in graph.values(): for weight in adjacent.values(): if type(weight) not in (int, float) or weight < 0: raise ValueError(\"Dijkstra 需要非负的数值边权\") if type(weight) is float and not isfinite(weight): raise ValueError(\"边权必须是有限数值\") nodes = dict.fromkeys(graph) for adjacent in graph.values(): for node in adjacent: nodes.setdefault(node, None) if start not in nodes: raise ValueError(\"起点必须在图中\") node_states = { node: {\"node\": node, \"distance\": float(\"inf\"), \"visited\": False, \"predecessor\": None} for node in nodes } table_rows = list(node_states.values()) current = neighbor = None node_states[start][\"distance\"] = 0 order = count() heap = [(0, next(order), start)] while heap: best, _, current = heappop(heap) if node_states[current][\"visited\"]: continue node_states[current][\"visited\"] = True for neighbor, weight in graph.get(current, {}).items(): if node_states[neighbor][\"visited\"]: continue candidate = best + weight if candidate < node_states[neighbor][\"distance\"]: node_states[neighbor][\"distance\"] = candidate node_states[neighbor][\"predecessor\"] = current heappush(heap, (candidate, next(order), neighbor)) return ({node: state[\"distance\"] for node, state in node_states.items()}, {node: state[\"predecessor\"] for node, state in node_states.items()}) graph = { \"A\": {\"B\": 4, \"C\": 1}, \"B\": {\"D\": 1, \"E\": 7}, \"C\": {\"B\": 2, \"D\": 5}, \"D\": {\"E\": 3}, \"E\": {\"F\": 1}, \"F\": {\"C\": 2}, \"G\": {}, } distances, previous = dijkstra(graph, \"A\") for node, distance in distances.items(): print(f\"A → {node}: {distance}\") path = [] node = \"F\" while node is not None: path.append(node) node = previous[node] print(\"到 F 的路径:\", \" → \".join(reversed(path)))"
+              - table [ref=e370]:
+                - rowgroup [ref=e371]:
+                  - row [ref=e372]:
+                    - columnheader "节点" [ref=e373]
+                    - columnheader "A" [ref=e374]
+                    - columnheader "B" [ref=e375]
+                    - columnheader "C" [ref=e376]
+                    - columnheader "D" [ref=e377]
+                    - columnheader "E" [ref=e378]
+                    - columnheader "F" [ref=e379]
+                    - columnheader "G" [ref=e380]
+                - rowgroup [ref=e381]:
+                  - row [ref=e382]:
+                    - cell "从 A 出发的最终距离" [ref=e383]
+                    - cell "0" [ref=e384]
+                    - cell "3" [ref=e385]
+                    - cell "1" [ref=e386]
+                    - cell "4" [ref=e387]
+                    - cell "7" [ref=e388]
+                    - cell "8" [ref=e389]
+                    - cell "∞" [ref=e390]
+              - paragraph [ref=e391]:
+                - text: 到 F 的最短路径为
+                - strong [ref=e392]: A → C → B → D → E → F
+                - text: ，总长度
+                - strong [ref=e393]: "8"
+                - text: 。G 不可达，距离保持
+                - code [ref=e394]: ∞
+                - text: ，不会进入已访问集合。
+              - complementary [ref=e395]:
+                - generic [ref=e396] [cursor=pointer]: Tip
+                - paragraph [ref=e397]: 单步观察独立动态表格中 B 的 distance 从 4 改成 3，D 从 6 改成 4，E 从 10 改成 7。黄色节点和单元格标记状态变化。visited、predecessor 与其他自定义成员一样显示在状态详情和表格中；可视化器不会据此推断算法语义。蓝色加粗边连接当前两个指针，它本身不表示松弛成功。
+              - paragraph [ref=e398]:
+                - text: 最小堆可以保留旧候选，例如 B 的旧距离 4。节点的
+                - code [ref=e399]: visited
+                - text: 状态检查会跳过这些过期条目。回放仍按真实源码事件逐步展示，不把“刚入堆”当成“距离已确定”。
+          - article [ref=e400]:
+            - generic [ref=e401]:
+              - generic [ref=e402]: Slide 8
+              - strong [ref=e403]: 1 code
+            - generic [ref=e404]:
+              - heading "Dynamic table · 独立观察数组" [level=1] [ref=e405]
+              - paragraph [ref=e406]: 表格可以独立使用，不需要图。记录数组的字段自动成为列；二维数组按下标生成列，一维数组显示为一列。行列的增加、删除及单元格修改都随源码事件回放。
+              - generic [ref=e407]:
+                - generic [ref=e408]:
+                  - generic [ref=e409]:
+                    - img "Python" [ref=e410]
+                    - strong [ref=e418]: dynamic-table
+                  - button "Run dynamic-table" [ref=e420] [cursor=pointer]: Run
+                - code [ref=e422]: "rows = [{\"任务\": \"读取输入\", \"完成\": False}, {\"任务\": \"计算结果\", \"完成\": False}] rows[0][\"完成\"] = True rows[0][\"耗时\"] = 2 rows.append({\"任务\": \"输出结果\", \"完成\": False, \"耗时\": 1}) del rows[1] rows[-1][\"完成\"] = True"

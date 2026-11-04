@@ -1,3 +1,4 @@
+use super::visualization::{self, VisualizationConfig};
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,9 @@ pub struct PythonRunRequest {
     pub timeout_ms: u64,
     pub session_id: Option<String>,
     pub mode: String,
+    pub visualization: Option<VisualizationConfig>,
+    #[serde(skip)]
+    pub source_start_line: Option<usize>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -79,9 +83,15 @@ struct ProcessRunOutput {
     stdout: String,
     stderr: String,
     error: Option<RuntimeError>,
+    outputs: Vec<RichOutput>,
 }
 
 pub fn run(request: PythonRunRequest) -> PythonRunResult {
+    if let Some(config) = &request.visualization {
+        if let Err(message) = visualization::validate_config(config) {
+            return error_result(request.id, "VisualizationConfigError", message);
+        }
+    }
     let clock = RunClock::start();
     let timeout_ms = if request.timeout_ms == 0 {
         DEFAULT_TIMEOUT_MS
@@ -92,6 +102,7 @@ pub fn run(request: PythonRunRequest) -> PythonRunResult {
     let run_output = match run_process(&request, Duration::from_millis(timeout_ms)) {
         Ok(output) => output,
         Err(error) => ProcessRunOutput {
+            outputs: vec![],
             status: RunStatus::Error,
             stdout: String::new(),
             stderr: String::new(),
@@ -111,6 +122,7 @@ pub fn error_result(id: String, name: &str, message: String) -> PythonRunResult 
         id,
         RunClock::start(),
         ProcessRunOutput {
+            outputs: vec![],
             status: RunStatus::Error,
             stdout: String::new(),
             stderr: String::new(),
@@ -143,6 +155,21 @@ fn run_process_in_dir(
     fs::write(&script_path, &request.code)
         .map_err(|error| format!("Failed to write temporary Python file: {error}"))?;
 
+    let run_id = run_dir
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    if let Some(config) = &request.visualization {
+        visualization::write_runner(run_dir)?;
+        let header = serde_json::json!({ "schemaVersion": 1, "runId": run_id, "cellId": request.id, "config": config });
+        fs::write(
+            run_dir.join("visualization-config.json"),
+            serde_json::to_vec(&header).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
     let mut last_spawn_error = None;
 
     for executable in python_executable_candidates() {
@@ -154,20 +181,35 @@ fn run_process_in_dir(
         let mut command = Command::new(executable);
         command
             .arg("-u")
-            .arg(&script_path)
             .stdin(Stdio::null())
             .stdout(Stdio::from(stdout_file))
             .stderr(Stdio::from(stderr_file))
             .env("PYTHONUNBUFFERED", "1")
-            .env("STREAM_LEARN_CELL_ID", &request.id)
-            .env("STREAM_LEARN_RUN_MODE", &request.mode);
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("LIVELEAF_CELL_ID", &request.id)
+            .env("LIVELEAF_RUN_MODE", &request.mode);
+
+        if request.visualization.is_some() {
+            command
+                .arg(run_dir.join("runner.py"))
+                .arg(&script_path)
+                .arg(run_dir.join("visualization-config.json"))
+                .arg(run_dir.join("trace.jsonl"));
+        } else {
+            command.arg(&script_path);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
 
         if let Some(session_id) = request.session_id.as_deref() {
-            command.env("STREAM_LEARN_SESSION_ID", session_id);
+            command.env("LIVELEAF_SESSION_ID", session_id);
         }
 
         if let Some(file_path) = request.file_path.as_deref() {
-            command.env("STREAM_LEARN_FILE_PATH", file_path);
+            command.env("LIVELEAF_FILE_PATH", file_path);
         }
 
         command.current_dir(resolve_working_directory(request, run_dir)?);
@@ -190,13 +232,14 @@ fn run_process_in_dir(
         let stdout = fs::read_to_string(&stdout_path).unwrap_or_default();
         let stderr = fs::read_to_string(&stderr_path).unwrap_or_default();
 
-        return match status {
-            WaitOutcome::Exited(exit_status) if exit_status.success() => Ok(ProcessRunOutput {
+        let mut output = match status {
+            WaitOutcome::Exited(exit_status) if exit_status.success() => ProcessRunOutput {
+                outputs: vec![],
                 status: RunStatus::Success,
                 stdout,
                 stderr,
                 error: None,
-            }),
+            },
             WaitOutcome::Exited(exit_status) => {
                 let error = parse_python_error(&stderr).or_else(|| {
                     Some(RuntimeError {
@@ -206,14 +249,16 @@ fn run_process_in_dir(
                     })
                 });
 
-                Ok(ProcessRunOutput {
+                ProcessRunOutput {
+                    outputs: vec![],
                     status: RunStatus::Error,
                     stdout,
                     stderr,
                     error,
-                })
+                }
             }
-            WaitOutcome::Timeout => Ok(ProcessRunOutput {
+            WaitOutcome::Timeout => ProcessRunOutput {
+                outputs: vec![],
                 status: RunStatus::Timeout,
                 stdout,
                 stderr,
@@ -222,12 +267,34 @@ fn run_process_in_dir(
                     message: format!("Execution timed out after {} ms.", timeout.as_millis()),
                     traceback: None,
                 }),
-            }),
-            WaitOutcome::WaitFailed(error) => Ok(spawn_failure_output(
+            },
+            WaitOutcome::WaitFailed(error) => spawn_failure_output(
                 "PythonWaitError",
                 format!("The Python process could not be observed: {error}"),
-            )),
+            ),
         };
+        if let Some(config) = &request.visualization {
+            let status = match output.status {
+                RunStatus::Success => "success",
+                RunStatus::Timeout => "timeout",
+                _ => "error",
+            };
+            let trace = visualization::read_trace(
+                &run_dir.join("trace.jsonl"),
+                &run_id,
+                &request.id,
+                config,
+                request.code.lines().count(),
+                status,
+                request.source_start_line,
+            );
+            output.outputs.push(RichOutput {
+                kind: RichOutputKind::Json,
+                mime: Some(visualization::MIME.into()),
+                value: serde_json::to_string(&trace).map_err(|e| e.to_string())?,
+            });
+        }
+        return Ok(output);
     }
 
     Ok(spawn_failure_output(
@@ -274,7 +341,7 @@ fn wait_with_timeout(child: &mut std::process::Child, timeout: Duration) -> Wait
 
 fn build_result(id: String, clock: RunClock, output: ProcessRunOutput) -> PythonRunResult {
     let ended_system = SystemTime::now();
-    let outputs = if output.stdout.is_empty() {
+    let mut outputs = if output.stdout.is_empty() {
         Vec::new()
     } else {
         vec![RichOutput {
@@ -283,6 +350,7 @@ fn build_result(id: String, clock: RunClock, output: ProcessRunOutput) -> Python
             value: output.stdout.clone(),
         }]
     };
+    outputs.extend(output.outputs);
 
     PythonRunResult {
         id,
@@ -300,6 +368,7 @@ fn build_result(id: String, clock: RunClock, output: ProcessRunOutput) -> Python
 
 fn spawn_failure_output(name: &str, message: String) -> ProcessRunOutput {
     ProcessRunOutput {
+        outputs: vec![],
         status: RunStatus::Error,
         stdout: String::new(),
         stderr: String::new(),
@@ -345,7 +414,7 @@ fn create_temp_run_dir(id: &str) -> Result<PathBuf, String> {
         .map_or(0, |duration| duration.as_nanos());
 
     base.push(format!(
-        "stream-learn-python-{safe_id}-{}-{timestamp}",
+        "liveleaf-python-{safe_id}-{}-{timestamp}",
         std::process::id()
     ));
     fs::create_dir_all(&base)
@@ -404,6 +473,156 @@ impl RunClock {
 mod tests {
     use super::*;
 
+    fn visual_run(code: &str, config: serde_json::Value, timeout_ms: u64) -> PythonRunResult {
+        run(PythonRunRequest {
+            id: "visual-test".into(),
+            code: code.into(),
+            file_path: None,
+            working_directory: None,
+            timeout_ms,
+            session_id: None,
+            mode: "run".into(),
+            visualization: Some(serde_json::from_value(config).unwrap()),
+            source_start_line: None,
+        })
+    }
+
+    fn trace(result: &PythonRunResult) -> serde_json::Value {
+        let output = result
+            .outputs
+            .iter()
+            .find(|o| o.mime.as_deref() == Some(visualization::MIME))
+            .expect("visualization output");
+        serde_json::from_str(&output.value).unwrap()
+    }
+
+    #[test]
+    fn collects_and_validates_array_and_tree_examples() {
+        if !python_is_available() {
+            return;
+        }
+        let course = crate::markdown::parse_course(include_str!(
+            "../../../docs/examples/python-visualization.ll.md"
+        ))
+        .unwrap();
+        for cell in course.code_cells {
+            let config = serde_json::to_value(cell.visualization.unwrap()).unwrap();
+            let result = visual_run(&cell.code, config, 5000);
+            assert_eq!(result.status, RunStatus::Success, "{:?}", result.error);
+            let trace = trace(&result);
+            assert_eq!(trace["capture"]["status"], "complete", "{trace}");
+            assert!(!trace["frames"].as_array().unwrap().is_empty());
+            if cell.id == "climb-stairs" {
+                assert_eq!(result.stdout.trim(), "8");
+                assert_eq!(
+                    trace["frames"].as_array().unwrap().last().unwrap()["state"]["items"],
+                    serde_json::json!([1, 1, 2, 3, 5, 8])
+                );
+            } else {
+                assert_eq!(result.stdout.trim(), "A → B → D → E → C → F");
+            }
+        }
+    }
+
+    #[test]
+    fn collects_and_validates_directed_graph_and_dijkstra_examples() {
+        if !python_is_available() {
+            return;
+        }
+        let course =
+            crate::markdown::parse_course(include_str!("../../../docs/examples/dijkstra.ll.md"))
+                .unwrap();
+        for cell in course.code_cells {
+            let config = serde_json::to_value(cell.visualization.unwrap()).unwrap();
+            let result = visual_run(&cell.code, config, 5000);
+            assert_eq!(result.status, RunStatus::Success, "{:?}", result.error);
+            let trace = trace(&result);
+            assert_eq!(trace["capture"]["status"], "complete", "{trace}");
+            let frames = trace["frames"].as_array().unwrap();
+            assert!(!frames.is_empty());
+            let last = frames.last().unwrap();
+            assert_eq!(
+                last["type"],
+                if cell.id == "dynamic-table" {
+                    "dynamic-table"
+                } else {
+                    "graph"
+                }
+            );
+            if cell.id == "dijkstra-shortest-path" {
+                assert!(result.stdout.contains("到 F 的路径: A → C → B → D → E → F"));
+                let nodes = last["state"]["nodes"].as_array().unwrap();
+                let f = nodes.iter().find(|n| n["value"] == "F").unwrap();
+                assert_eq!(f["state"]["distance"], 8);
+                let g = nodes.iter().find(|n| n["value"] == "G").unwrap();
+                assert_eq!(
+                    g["state"]["distance"],
+                    serde_json::json!({"kind":"float","text":"inf"})
+                );
+                assert_eq!(g["state"]["visited"], false);
+                assert_eq!(
+                    last["tables"][0]["state"]["rows"][5],
+                    serde_json::json!(["F", 8, true, "E"])
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn graph_timeout_and_exception_preserve_valid_prefix() {
+        if !python_is_available() {
+            return;
+        }
+        let config = serde_json::json!({"type":"graph","watch":"graph","pointers":[],"scope":"module","graph":{}});
+        let result = visual_run(
+            "import time\ngraph={'A':{'B':1}}\ntime.sleep(10)\n",
+            config.clone(),
+            500,
+        );
+        assert_eq!(result.status, RunStatus::Timeout);
+        let t = trace(&result);
+        assert_eq!(t["capture"]["status"], "truncated");
+        assert_eq!(t["capture"]["reason"], "timeout");
+        assert!(!t["frames"].as_array().unwrap().is_empty());
+        let result = visual_run("graph={'A':{}}\nraise ValueError('bad')\n", config, 5000);
+        assert_eq!(result.status, RunStatus::Error);
+        assert_eq!(trace(&result)["capture"]["status"], "complete");
+    }
+
+    #[test]
+    fn timeout_recovers_flushed_prefix_and_exception_keeps_trace() {
+        if !python_is_available() {
+            return;
+        }
+        let config =
+            serde_json::json!({"type":"array", "watch":"arr", "pointers":[], "scope":"module"});
+        let result = visual_run(
+            "import time\narr=[1]\ntime.sleep(10)\n",
+            config.clone(),
+            400,
+        );
+        assert_eq!(result.status, RunStatus::Timeout);
+        let t = trace(&result);
+        assert_eq!(t["capture"]["status"], "truncated");
+        assert_eq!(t["capture"]["reason"], "timeout");
+        assert!(!t["frames"].as_array().unwrap().is_empty());
+        let result = visual_run("arr=[1]\nraise ValueError('bad')\n", config, 5000);
+        assert_eq!(result.status, RunStatus::Error);
+        assert_eq!(result.error.as_ref().unwrap().name, "ValueError");
+        assert_eq!(trace(&result)["capture"]["status"], "complete");
+    }
+
+    #[test]
+    fn direct_run_rejects_invalid_configuration_without_execution() {
+        let result = visual_run(
+            "print('must not run')",
+            serde_json::json!({"type":"array", "watch":"arr[0]", "pointers":[], "scope":"module"}),
+            5000,
+        );
+        assert_eq!(result.error.unwrap().name, "VisualizationConfigError");
+        assert!(result.stdout.is_empty());
+    }
+
     #[test]
     fn parses_traceback_error_name_and_message() {
         let error = parse_python_error(
@@ -436,6 +655,8 @@ mod tests {
             timeout_ms: DEFAULT_TIMEOUT_MS,
             session_id: None,
             mode: "run".to_string(),
+            visualization: None,
+            source_start_line: None,
         });
 
         assert_eq!(result.status, RunStatus::Success);
@@ -457,6 +678,8 @@ mod tests {
             timeout_ms: 50,
             session_id: None,
             mode: "run".to_string(),
+            visualization: None,
+            source_start_line: None,
         });
 
         assert_eq!(result.status, RunStatus::Timeout);

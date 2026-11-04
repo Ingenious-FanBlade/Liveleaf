@@ -2,7 +2,7 @@
 
 ## 1. Design Principles
 
-Stream Learn source files should be Markdown-first.
+Liveleaf source files should be Markdown-first.
 
 The syntax design follows these principles:
 
@@ -17,13 +17,13 @@ The syntax design follows these principles:
 Recommended extension:
 
 ```text
-.sl.md
+.ll.md
 ```
 
 Reason:
 
 - It is still clearly Markdown.
-- It signals Stream Learn extensions.
+- It signals Liveleaf extensions.
 - Editors can still treat it as Markdown.
 
 Normal `.md` files should still open, but extension features may be limited.
@@ -67,7 +67,7 @@ Runnable code uses a fenced code block with a `run` marker.
 
 ````markdown
 ```python run
-print("Hello, Stream Learn")
+print("Hello, Liveleaf")
 ```
 ````
 
@@ -311,7 +311,7 @@ Frontend responsibilities in the MVP:
 
 - Parse source text for live preview.
 - Split slides by `---`.
-- Render Markdown and Stream Learn directives into preview HTML.
+- Render Markdown and Liveleaf directives into preview HTML.
 - Identify runnable and exercise code cells for UI controls.
 - Track source line ranges when the parser can provide them.
 
@@ -406,7 +406,7 @@ Implementation notes for parity:
 - Use the same slide separator rule in both parsers.
 - Keep directive names and code fence attributes identical across frontend and
   backend.
-- Add parser fixture tests that run the same `.sl.md` examples through both
+- Add parser fixture tests that run the same `.ll.md` examples through both
   parsers and compare slide count, titles, code cell IDs, kinds, languages, and
   runtime attributes.
 - Do not require perfect HTML parity between frontend and backend. Semantic
