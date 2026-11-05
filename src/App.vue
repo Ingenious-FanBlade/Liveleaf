@@ -11,6 +11,7 @@ import type {
   SaveProjectPackageResponse,
 } from "./project/projectPackageClient";
 import { PythonRuntimeClient } from "./runtime/PythonRuntimeClient";
+import { runtimeOutputTarget, slideRenderKey } from "./runtime/outputSlot";
 import type { RunResult } from "./runtime/runResult";
 import { readVisualization } from "./runtime/visualization";
 import type { VisualizationTrace } from "./runtime/visualization";
@@ -577,10 +578,6 @@ function runStateFor(cellId: string) {
   return runStates.value[cellId];
 }
 
-function runtimeOutputTarget(cellId: string) {
-  return `[data-code-cell-output="${encodeURIComponent(cellId)}"]`;
-}
-
 function statusLabel(status: CellRunStatus | undefined) {
   switch (status) {
     case "pending":
@@ -901,13 +898,14 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
             <div
               :id="`preview-slide-title-${slide.id}`"
               class="markdown-preview"
+              :data-render-key="slideRenderKey(slide.html)"
               v-html="slide.html"
             />
 
             <Teleport
               v-for="cell in visibleRunCells(slide)"
               :key="cell.id"
-              :to="runtimeOutputTarget(cell.id)"
+              :to="runtimeOutputTarget(slide.html, cell.id)"
               defer
             >
               <section
@@ -1056,13 +1054,14 @@ function openProjectSummary(result: OpenProjectPackageResponse) {
         <div
           :id="`presentation-slide-title-${activeSlide.id}`"
           class="markdown-preview presentation-markdown"
+          :data-render-key="slideRenderKey(activeSlide.html)"
           v-html="activeSlide.html"
         />
 
         <Teleport
           v-for="cell in visibleRunCells(activeSlide)"
           :key="cell.id"
-          :to="runtimeOutputTarget(cell.id)"
+          :to="runtimeOutputTarget(activeSlide.html, cell.id)"
           defer
         >
           <section
